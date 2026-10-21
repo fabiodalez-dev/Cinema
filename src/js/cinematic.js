@@ -1,3 +1,4 @@
+import {createLivePreview, liveDevices} from './cinema-live.js';
 import nativeCatalog from '../../assets/native-icons/catalog.json';
 import {request} from './cinema-jellyfin.js';
 import {execRoot} from './luna.js';
@@ -65,6 +66,48 @@ export function createCinematic(host) {
     else if (e.key !== 'ArrowDown') e.stopPropagation();
   });
 
+  const livePanel=el('section','cinema-live-controls');livePanel.id='cinema-live-controls';
+  livePanel.setAttribute('aria-label','TV in diretta e fonti');
+  const liveName=el('h1','','Live TV');
+  const liveStatus=el('p','','');liveStatus.setAttribute('role','status');
+  const liveSources=el('div','cinema-live-sources');liveSources.id='cinema-live-sources';
+  const liveActions=el('div','cinema-live-actions');liveActions.id='cinema-live-actions';
+  const fullScreen=button('Schermo intero','cinema-primary',280,function(){
+    suspendLive();host.beforeLaunch();host.switchInput(liveDevice.id,liveDevice).catch(function(){host.showToast('Impossibile aprire la fonte.');resumeLive();});
+  });
+  liveActions.appendChild(fullScreen);
+  liveActions.appendChild(button('Riprova','cinema-secondary',281,function(){startLive(liveDevice);}));
+  if(host.openChannels)liveActions.appendChild(button('Canali','cinema-secondary',282,host.openChannels));
+  [liveName,liveStatus,liveSources,liveActions].forEach(function(n){livePanel.appendChild(n);});root.appendChild(livePanel);
+  let liveDevice={id:'TV',label:'Live TV',appId:'com.webos.app.livetv'};
+  const livePreview=createLivePreview(root,{supported:!!window.PalmSystem,onStatus:function(text,state){
+    liveStatus.textContent=text;livePanel.dataset.state=state;
+  }});
+  function isLive(){return prefs.enabled&&currentTab==='live';}
+  function suspendLive(){livePreview.stop();}
+  function resumeLive(){if(isLive()&&!document.hidden)startLive(liveDevice);}
+  function renderLiveSources(){
+    const labels=(host.getConfig().launcher||{}).inputLabels||{};
+    const focused=document.activeElement&&document.activeElement.dataset.liveSource;
+    liveSources.innerHTML='';
+    liveDevices(host.getInputs(),labels).forEach(function(device,i){
+      const b=button(device.label,'cinema-secondary cinema-source',250+i,function(){startLive(device);});
+      b.dataset.liveSource=device.id;liveSources.appendChild(b);
+    });
+    liveSources.querySelectorAll('button').forEach(function(b){
+      const selected=b.dataset.liveSource===liveDevice.id;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));
+    });
+    if(focused){const same=Array.from(liveSources.children).find(function(n){return n.dataset.liveSource===focused;});if(same)host.focus.focusElement(same);}
+  }
+  function startLive(device){
+    liveDevice=device;liveName.textContent=device.label||device.id;
+    host.beforePreview();
+    livePreview.start(device.id);
+    liveSources.querySelectorAll('button').forEach(function(b){
+      const selected=b.dataset.liveSource===device.id;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));
+    });
+  }
+
   function button(label, cls, index, action) {
     const b = el('button', cls + ' focusable', label); b.type = 'button'; b.dataset.focusIndex = String(index);
     b.addEventListener('click', action); return b;
@@ -77,7 +120,8 @@ export function createCinematic(host) {
   }
   function setEnabled(on) {
     prefs.enabled=!!on; write(PREFS,prefs); document.body.classList.toggle('cinematic', prefs.enabled);
-    fit(); host.focus.focusHomeDock();
+    if(on)resumeLive();else{suspendLive();host.afterPreview();}
+    fit(); if(!document.body.classList.contains('settings-open'))host.focus.focusHomeDock();
     host.showToast(on ? 'Interfaccia Cinema attiva' : 'Home originale · tasto giallo per Cinema');
   }
   function setStatus(text, online) { status.textContent=text; status.classList.toggle('online',!!online); }
@@ -154,14 +198,17 @@ export function createCinematic(host) {
     saveCache();
   }
   async function selectTab(kind) {
-    if(kind==='discover'){host.beforeLaunch();host.openApp('org.litefin.app',{cinemaPage:'discover'}).catch(function(){host.showToast('Apri Litefin per cercare e richiedere film con Seerr.');});return;}
+    if(kind==='discover'){suspendLive();host.beforeLaunch();host.openApp('org.litefin.app',{cinemaPage:'discover'}).catch(function(){host.showToast('Apri Litefin per cercare e richiedere film con Seerr.');});return;}
     if(kind==='apps'){host.openApps();return;}
-    if(kind==='search'){search.hidden=false;host.focus.focusElement(searchInput);return;}
+    if(kind==='search'){if(currentTab==='live')selectTab('home');search.hidden=false;host.focus.focusElement(searchInput);return;}
+    const wasLive=currentTab==='live';
+    if(kind!=='live')suspendLive();
     currentTab=kind;nav.querySelectorAll('button').forEach(function(b){const selected=b.dataset.cinemaTab===kind;b.classList.toggle('selected',selected);b.setAttribute('aria-current',selected?'page':'false');});
     const mark=++generation;
     document.body.classList.toggle('cinema-live',kind==='live');
     document.body.classList.toggle('cinema-music',kind==='music');
-    if(kind==='live') {showItems([], 'TV e ingressi');host.focus.focusWithin('#input-row');return;}
+    if(wasLive&&kind!=='live')host.afterPreview();
+    if(kind==='live') {search.hidden=true;renderLiveSources();startLive({id:'TV',label:'Live TV',appId:'com.webos.app.livetv'});host.focus.focusWithin('#cinema-live-sources');return;}
     if(kind==='home'){showItems(cached.resume.length?cached.resume:cached.items,cached.resume.length?'Continua a guardare':'Aggiunti di recente');return;}
     if(!client){if(kind==='music'){showItems(cached.music||[],'La tua musica');return;}showItems(cached.items.filter(function(item){return kind==='movies'?item.type==='Movie':item.type==='Series';}),kind==='movies'?'I tuoi film':'Le tue serie');return;}
     setStatus('Caricamento…',true);
@@ -205,7 +252,7 @@ export function createCinematic(host) {
     const section=el('section','settings-section cinema-settings');section.appendChild(el('h2','','Cinema e Jellyfin'));
     [['Interfaccia Cinema','enabled'],['Contenuti Jellyfin','jellyfin'],['Sfondi dalla libreria','backdrops']].forEach(function(pair,i){
       const row=el('label','settings-row');row.appendChild(el('span','',pair[0]));const input=el('input','focusable');input.type='checkbox';input.checked=!!prefs[pair[1]];input.dataset.focusIndex=String(940+i);
-      input.addEventListener('change',function(){prefs[pair[1]]=input.checked;write(PREFS,prefs);if(pair[1]==='enabled'){document.body.classList.toggle('cinematic',input.checked);fit();}else if(pair[1]==='jellyfin'){if(!input.checked){client=null;generation++;showItems([],'Le tue scorciatoie');setStatus('Home locale',false);}else refresh(true);}else setHero(hero);});row.appendChild(input);section.appendChild(row);
+      input.addEventListener('change',function(){prefs[pair[1]]=input.checked;write(PREFS,prefs);if(pair[1]==='enabled'){setEnabled(input.checked);}else if(pair[1]==='jellyfin'){if(!input.checked){client=null;generation++;showItems([],'Le tue scorciatoie');setStatus('Home locale',false);}else refresh(true);}else setHero(hero);});row.appendChild(input);section.appendChild(row);
     });
     section.appendChild(button('Aggiorna Jellyfin', 'settings-button',944,function(){refresh(true);host.showToast('Aggiornamento Jellyfin richiesto');}));
     section.appendChild(el('p','','Il tasto giallo alterna Cinema e interfaccia originale. Senza server, app e HDMI restano disponibili. Il collegamento Jellyfin è salvato solo su questa TV.'));
@@ -213,12 +260,13 @@ export function createCinematic(host) {
   }
   // Yellow is unused upstream; all existing colour-key actions remain intact.
   document.addEventListener('keydown',function(e){if((e.keyCode===405||e.key==='y')&&!document.body.classList.contains('settings-open')&&document.activeElement.tagName!=='INPUT'){e.preventDefault();setEnabled(!prefs.enabled);}});
-  document.addEventListener('visibilitychange',function(){if(!document.hidden)refresh(false);});
+  document.addEventListener('visibilitychange',function(){if(document.hidden)suspendLive();else{resumeLive();refresh(false);}});
+  window.addEventListener('pagehide',suspendLive);
   document.addEventListener('webOSRelaunch',function(){refresh(false);});
   window.addEventListener('resize',fit);
   document.body.classList.toggle('cinematic',prefs.enabled);fit();
   showItems(prefs.jellyfin?(cached.resume.length?cached.resume:cached.items):[],cached.resume.length?'Continua a guardare':cached.items.length?'Aggiunti di recente':'Le tue scorciatoie');
   if(cached.at)setStatus('Jellyfin offline',false);
   setTimeout(function(){refresh(true);},300);
-  return {refresh:refresh,mountSettings:mountSettings,setEnabled:setEnabled};
+  return {refresh:refresh,mountSettings:mountSettings,setEnabled:setEnabled,isLive:isLive,suspendLive:suspendLive,refreshInputs:function(){if(isLive())renderLiveSources();},back:function(){if(!isLive())return false;selectTab('home');host.focus.focusElement(nav.querySelector('[data-cinema-tab=live]'));return true;}};
 }

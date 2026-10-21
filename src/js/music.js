@@ -190,6 +190,7 @@ export function createMusicPlayer(getConfig, elements) {
    * Some TVs only allow autoplay when muted; we try muted first then unmute.
    */
   function tryPlay() {
+    if(document.body.classList.contains('cinematic')&&document.body.classList.contains('cinema-live'))return Promise.resolve(false);
     return new Promise(function (resolve) {
       function afterPlayAttempt(ok) {
         if (ok) {

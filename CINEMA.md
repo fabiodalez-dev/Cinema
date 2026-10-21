@@ -37,3 +37,11 @@ Geist is bundled under its SIL Open Font License (see assets/fonts). Native app 
 On the target webOS 5 TV, LG Home is an overlay and the stock foreground watcher does not reliably see it. LG Input Hook 1.5.1 is therefore installed separately and maps remote Home key 773 directly to this app. The user confirmed the physical Home button opens Cinema. The original boot-on-start hook is retained and was verified after a TV restart.
 
 Scopri opens Litefin’s Discover page. Seerr integration is handled by the official Litefin companion plugin on the Jellyfin server, with its Seerr URL and API key stored only on that server. No Seerr admin key is sent to the TV or bundled with this fork.
+
+## Live TV and external inputs
+
+Selecting Live immediately embeds `tv://` with webOS' broadcast service behind the launcher. Its source row offers TV first, then all detected inputs (including HDMI, AV and Component), retaining custom input labels. The list updates if input discovery completes after opening Live. Choosing a supported source changes the single embedded native pipeline; Schermo intero opens the selected source through the original input controller. Riprova recreates the preview, while Canali retains the original channel picker.
+
+The native video pipeline is released when leaving Live, switching to the original interface, hiding the app or opening another app. Source changes remove the old pipeline before creating a new one. Ambient wallpaper motion/music and the in-app idle screensaver do not compete with Live viewing. Physical number, channel and volume keys are left to webOS during Live. A desktop preview explains that live video is TV-only; it never pretends to show a broadcast. Errors and missing signals retain source selection and the full-screen fallback.
+
+This uses the [webOS Homebrew input embedding mechanism](https://www.webosbrew.org/develop/guides/web-app/#inputtv-embedding). It does not change the launcher's window type or replace LG's native input applications.

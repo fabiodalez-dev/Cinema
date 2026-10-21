@@ -272,6 +272,7 @@ export function createBackgroundController(elements, getConfig) {
   // Settings panel is neither: the wallpaper is its backdrop, so it keeps moving.
   function wallpaperShouldAnimate() {
     if (document.hidden) return false;
+    if(document.body.classList.contains('cinematic')&&document.body.classList.contains('cinema-live'))return false;
     if (document.body && document.body.classList.contains('app-inactive')) return false;
     return true;
   }

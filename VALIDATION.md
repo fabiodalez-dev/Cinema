@@ -2,10 +2,11 @@
 
 Target: LG 43UN70006LA, firmware 04.64.00, ARM32, approximately 1 GB RAM.
 
-- Upstream tests retained. 37 automated checks cover remote routing, app launching, focus, aerial stepping and the added Jellyfin client (Authorization headers, timeout/401 rejection and malformed metadata).
+- Upstream tests retained. 42 automated checks cover remote routing, app launching, focus, aerial stepping and the added Jellyfin client (Authorization headers, timeout/401 rejection and malformed metadata), plus native Live source validation, lifecycle cleanup, stale callbacks, error/desktop fallback, early input discovery and remote-key routing.
 - IPK produced with the upstream packager. Archive file dates verified; transferred package SHA-256 compared before installation.
 - On-device checks: genuine installed app icons load; film/series/resume/music data and artwork come from Jellyfin; all nine original settings categories remain, with Cinema added to Tools.
 - Directional navigation moves between dock, media, hero actions and top navigation.
+- Live opens the native TV pipeline (`tv://`, readyState 4, 1920×1080, no player error). HDMI 1 switches to `ext://hdmi:1` with readyState 4 and no error. Remote Down moves source → full-screen action → dock. Returning to Home or classic mode leaves zero Live video elements; returning to Cinema recreates exactly one TV source. The user confirmed actual programme video and audio work behind the launcher controls. CDP screenshots omit the hardware video plane; HDMI input readiness was checked, but a connected HDMI device’s programme content was not independently confirmed.
 - Litefin accepts a selected music album through the optional adapter and uses its existing details route.
 - Fallback checked on the TV by injecting Jellyfin request failures: cached titles remain and all eight dock tiles remain available. A separate launch without credentials or media cache verifies the local fallback.
 - The original boot hook launches Cinema after a TV restart. The original Home watcher failed the physical remote test on webOS 5; LG Input Hook 1.5.1 now maps Home (773) directly to Cinema, confirmed by the user. LG's default home setting is retained.

@@ -15,6 +15,8 @@ const POINTER_AXIS_RATIO = 1.6;
 function focusRow(el) {
   if (!el) return '';
   if (el.closest('#cinema-nav')) return 'cinema-nav';
+  if (el.closest('#cinema-live-sources')) return 'cinema-live-sources';
+  if (el.closest('#cinema-live-actions')) return 'cinema-live-actions';
   if (el.closest('#cinema-actions')) return 'cinema-actions';
   if (el.closest('#cinema-rail')) return 'cinema-rail';
   if (el.closest('#input-row')) return 'inputs';
@@ -195,7 +197,7 @@ export function createFocusManager(root, handlers) {
   // A selector that finds `el` again after its row is redrawn.
   function homeKey(el) {
     if (el.id) return '#' + el.id;
-    const attrs = ['data-app-id', 'data-input-id', 'data-action', 'data-channel'];
+    const attrs = ['data-live-source', 'data-cinema-tab', 'data-app-id', 'data-input-id', 'data-action', 'data-channel'];
     for (let i = 0; i < attrs.length; i += 1) {
       const value = el.getAttribute(attrs[i]);
       if (value) return '[' + attrs[i] + '="' + value.replace(/["\\]/g, '\\$&') + '"]';
@@ -1025,7 +1027,7 @@ export function createFocusManager(root, handlers) {
     // rows before the legacy input/app shortcuts, which otherwise skip the rail.
     if (document.body.classList.contains('cinematic') &&
         !root.querySelector('.all-apps:not([hidden])') && !settingsOpen && isVertical) {
-      const groups = ['.top-bar', '#cinema-search', '#cinema-actions', '#cinema-rail', '#channel-strip', '#input-row', '#app-grid', '#music-bar'];
+      const groups = ['.top-bar', '#cinema-search', '#cinema-actions', '#cinema-rail', '#cinema-live-sources', '#cinema-live-actions', '#channel-strip', '#input-row', '#app-grid', '#music-bar'];
       const rows = groups.map(function (selector) {
         const node = root.querySelector(selector);
         const controls = node ? Array.from(node.querySelectorAll('.focusable')).filter(isFocusable) : [];
@@ -1212,6 +1214,7 @@ export function createFocusManager(root, handlers) {
     // numbers belong to what is on screen, not the home row.
     const digit = digitFromKey(code, event.key);
     if (digit >= 0) {
+      if(handlers&&handlers.nativeTvKeys&&handlers.nativeTvKeys())return;
       const active = document.activeElement;
       if (isEditingSettingsText(active)) return;
       if (document.body.classList.contains('settings-open')) return;
@@ -1267,6 +1270,9 @@ export function createFocusManager(root, handlers) {
       }
       return;
     }
+
+    if (handlers && handlers.nativeTvKeys && handlers.nativeTvKeys() &&
+        [REMOTE_KEY.VOLUME_UP, REMOTE_KEY.VOLUME_DOWN, REMOTE_KEY.VOLUME_MUTE, REMOTE_KEY.CHANNEL_UP, REMOTE_KEY.CHANNEL_DOWN].indexOf(code)>=0) return;
 
     if (code === REMOTE_KEY.VOLUME_UP) {
       if (handlers && handlers.onVolumeUp) {

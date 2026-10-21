@@ -13,6 +13,7 @@ import {createChannelStrip} from './channels.js';
 import {createFocusManager} from './focus.js';
 import {createSettingsPanel} from './settings.js';
 import {
+  switchInput,
   getForegroundApp,
   launchApp,
   launchAppViaRoot,
@@ -140,6 +141,7 @@ const music = createMusicPlayer(getConfig, Object.assign({}, elements, {
 }));
 // HDMI / input switch or a TV channel — raise TV volume like launching an app.
 function beforeInputLaunch() {
+  if(cinematic)cinematic.suspendLive();
   applyAppLaunchVolume();
   const config = getConfig();
   if (config.music && config.music.pauseOnLaunch) {
@@ -310,6 +312,7 @@ function settleHomeVolume() {
 }
 
 function applyHomeVolume() {
+  if(cinematic&&cinematic.isLive())return applyAppLaunchVolume();
   const config = getConfig();
   return applySystemVolume(config.launcher && config.launcher.volumeAtHome);
 }
@@ -350,6 +353,7 @@ const customScreensaver = createCustomScreensaver({
     if (settings && typeof settings.isVisible === 'function' && settings.isVisible()) {
       return true;
     }
+    if (cinematic && cinematic.isLive()) return true;
     if (launchPending) return true;
     return false;
   },
@@ -363,6 +367,7 @@ const customScreensaver = createCustomScreensaver({
 
 const apps = createAppGrid(elements.appGrid, getConfig, {
   onBeforeLaunch: function () {
+    if(cinematic)cinematic.suspendLive();
     launchPending = true;
     wentHiddenSinceLaunch = false;
     ghostReasserted = false;
@@ -429,7 +434,9 @@ const focus = createFocusManager(document.getElementById('app'), {
       settings.hide();
       return;
     }
+    if(cinematic)cinematic.back();
   },
+  nativeTvKeys: function () {return !!(cinematic && cinematic.isLive());},
   onRed: function () {
     if (settings.isVisible()) return;
     // Red also unlocks autoplay if the TV blocked silent start.
@@ -839,6 +846,7 @@ async function refreshAll(opts) {
   // their settings haven't changed (see background.refresh, music.loadTracks).
   await background.refresh({reuse: resume});
   await inputs.refresh();
+  if(cinematic)cinematic.refreshInputs();
   // Whether the TV has channels decides if the Channels chip shows.
   channelStrip.refresh().catch(function () { /* no channels chip */ });
   const launcherConfig = getConfig().launcher || {};
@@ -1422,6 +1430,11 @@ try {
     showToast: showToast,
     openApps: function () { allApps.show(); },
     beforeLaunch: beforeInputLaunch,
+    beforePreview: function(){applyAppLaunchVolume();music.fadeOutAndPause();},
+    afterPreview: function(){applyHomeVolume();const config=getConfig();if(config.music&&config.music.resumeOnReturn)music.fadeInAndResume();},
+    getInputs: function(){return inputs.getDevices();},
+    switchInput: switchInput,
+    openChannels: function(){if(!channelStrip.isOpen())channelStrip.toggle();},
     openApp: function (id, params) {
       if (!params || !Object.keys(params).length) {
         return launchApp(id).catch(function () { return launchAppViaRoot(id); });

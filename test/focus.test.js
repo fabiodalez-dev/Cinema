@@ -19,6 +19,7 @@ beforeAll(() => {
   root.id = 'app';
   document.body.appendChild(root);
   createFocusManager(root, {
+    nativeTvKeys: function(){return document.body.classList.contains("test-live");},
     onNumber: onNumber,
     onChannelUp: onChannelUp,
     onChannelDown: onChannelDown,
@@ -84,6 +85,16 @@ describe('number-key routing', () => {
     root.appendChild(overlay);
     press(49, '1');
     expect(onNumber).not.toHaveBeenCalled();
+  });
+});
+
+describe('native TV key routing',()=>{
+  it('leaves numbers, volume and channel keys to the platform while Live is open',()=>{
+    document.body.classList.add('test-live');
+    expect(press(49,'1').defaultPrevented).toBe(false);
+    expect(press(447).defaultPrevented).toBe(false);
+    expect(press(427).defaultPrevented).toBe(false);
+    expect(onNumber).not.toHaveBeenCalled();expect(onChannelUp).not.toHaveBeenCalled();
   });
 });
 

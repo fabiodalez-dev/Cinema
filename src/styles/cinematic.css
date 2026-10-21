@@ -140,3 +140,20 @@ body.cinematic #app-grid .app-tile.all-apps-tile .app-icon,body.cinematic #app-g
 body.cinematic.cinema-noambient .music-bar{display:none}
 
 body.cinematic #app-grid .all-apps-icon{background:#35353e;box-shadow:none}
+
+/* Live: native broadcast/HDMI plane behind the launcher controls. */
+#cinema-live-video,.cinema-live-controls{display:none}
+body.cinematic.cinema-live #cinema-live-video{display:block;position:absolute;left:0;top:0;width:1920px;height:1080px;background:transparent;object-fit:contain;pointer-events:none;z-index:0}
+body.cinematic.cinema-live #app{background:transparent}
+body.cinematic.cinema-live #background-layer,body.cinematic.cinema-live .cinema-backdrop,body.cinematic.cinema-live .cinema-hero{visibility:hidden;pointer-events:none}
+body.cinematic.cinema-live .cinema-scrim{z-index:1;background:linear-gradient(180deg,rgba(0,0,0,.65),transparent 22%,transparent 55%,rgba(0,0,0,.8) 85%,rgba(0,0,0,.9))}
+body.cinematic.cinema-live .cinema-live-controls{display:block;position:absolute;left:80px;right:80px;bottom:180px;z-index:3}
+body.cinematic .cinema-live-controls h1{font-size:42px;font-weight:600;letter-spacing:-1.5px;line-height:1.2;margin:0 0 6px}
+body.cinematic .cinema-live-controls p{font-size:19px;color:#d2d2d6;margin:0 0 18px;min-height:26px}
+body.cinematic .cinema-live-sources,body.cinematic .cinema-live-actions{display:flex;align-items:center;flex-wrap:wrap}
+body.cinematic .cinema-live-sources{margin-bottom:18px}
+body.cinematic .cinema-live-sources button,body.cinematic .cinema-live-actions button{margin:0 14px 8px 0;font-size:21px;height:54px}
+body.cinematic .cinema-source.selected{background:#e5e5e9;color:#17171d;border-color:#e5e5e9}
+body.cinematic.cinema-live #input-row{display:none}
+body.cinematic.cinema-live #channel-strip:not([hidden]){bottom:390px;max-height:360px}
+body.cinematic.settings-open .cinema-live-controls,body.cinematic.custom-screensaver-active .cinema-live-controls{visibility:hidden;pointer-events:none}
