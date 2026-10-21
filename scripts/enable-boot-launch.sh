@@ -31,5 +31,15 @@ exit 0
 EOF
 chmod 755 "$INITD"
 
+# Start the wake watcher now so Quick Start+ wakes are handled before the next
+# reboot. boot-launch.sh exits at once if an instance is already running.
+if command -v setsid >/dev/null 2>&1; then
+  setsid nohup "$LAUNCH" --wake-only >>"$LOG" 2>&1 </dev/null &
+elif command -v nohup >/dev/null 2>&1; then
+  nohup "$LAUNCH" --wake-only >>"$LOG" 2>&1 </dev/null &
+else
+  "$LAUNCH" --wake-only >>"$LOG" 2>&1 </dev/null &
+fi
+
 echo enabled boot=$INITD
 exit 0

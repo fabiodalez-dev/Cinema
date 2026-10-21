@@ -3121,7 +3121,7 @@ export function createSettingsPanel(panel, getConfig, options) {
 
     const bootHint = document.createElement('p');
     bootHint.className = 'settings-hint';
-    bootHint.textContent = 'When enabled, a root init.d script launches Launch Home after the TV powers on. Requires rooted TV + Homebrew Channel (same as Home button). A short delay on boot is normal while webOS starts. With Quick Start+ on, the TV only wakes from standby and this doesn’t run; turn it off under General → Devices → TV Management.';
+    bootHint.textContent = 'When enabled, a root init.d script launches Launch Home after the TV powers on. Requires rooted TV + Homebrew Channel (same as Home button). A short delay on boot is normal while webOS starts. With Quick Start+ on, Launch Home also reopens each time the TV wakes from standby.';
     launcherSection.appendChild(bootHint);
     // ── Glass: the see-through tiles and buttons on the home screen ──────
     const glassSection = document.createElement('section');
