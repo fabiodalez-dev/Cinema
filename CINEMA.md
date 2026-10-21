@@ -31,3 +31,9 @@ The upstream packager and epoch timestamp verification are preserved. The app ID
 ## Assets
 
 Geist is bundled under its SIL Open Font License (see assets/fonts). Native app icons are a small snapshot from the target TV used as a fallback; a runtime scan still reads installed icons and caches them. App trademarks and artwork belong to their owners. Jellyfin library metadata and artwork are never bundled.
+
+## webOS 5 Home button and Seerr
+
+On the target webOS 5 TV, LG Home is an overlay and the stock foreground watcher does not reliably see it. LG Input Hook 1.5.1 is therefore installed separately and maps remote Home key 773 directly to this app. The user confirmed the physical Home button opens Cinema. The original boot-on-start hook is retained and was verified after a TV restart.
+
+Scopri opens Litefin’s Discover page. Seerr integration is handled by the official Litefin companion plugin on the Jellyfin server, with its Seerr URL and API key stored only on that server. No Seerr admin key is sent to the TV or bundled with this fork.

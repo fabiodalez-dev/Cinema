@@ -11,7 +11,7 @@
   }
   function handle(raw) {
     var p = parse(raw);
-    if (!/^[a-f0-9]{32}$/i.test(p.cinemaItemId || '')) return;
+    if (p.cinemaPage !== 'discover' && !/^[a-f0-9]{32}$/i.test(p.cinemaItemId || '')) return;
     clearTimeout(timer);
     var attempts = 0;
     function open() {
@@ -19,7 +19,7 @@
         if (++attempts < 40) timer = setTimeout(open, 250);
         return;
       }
-      var path = p.cinemaAction === 'resume'
+      var path = p.cinemaPage === 'discover' ? '/discover' : p.cinemaAction === 'resume'
         ? '/player/' + p.cinemaItemId + '/false?fromDetails=true'
         : '/details/' + p.cinemaItemId;
       // Preserve a useful Back target; app-native routing owns everything else.

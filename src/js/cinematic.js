@@ -29,7 +29,7 @@ export function createCinematic(host) {
   const top = document.querySelector('.top-bar'); top.appendChild(nav);
   const status = el('span', 'cinema-status', 'Home locale'); status.id = 'cinema-status';
   top.appendChild(status);
-  const tabs = [ ['search', '⌕'], ['home', 'Per te'], ['movies', 'Film'], ['series', 'Serie'], ['music', 'Musica'], ['live', 'Live'], ['apps', 'App'] ];
+  const tabs = [ ['search', '⌕'], ['home', 'Per te'], ['movies', 'Film'], ['series', 'Serie'], ['music', 'Musica'], ['discover', 'Scopri'], ['live', 'Live'], ['apps', 'App'] ];
   tabs.forEach(function (tab, i) {
     const b = button(tab[1], 'cinema-tab', 150 + i, function () { selectTab(tab[0]); });
     b.dataset.cinemaTab = tab[0]; b.setAttribute('aria-label', tab[0] === 'search' ? 'Cerca in Jellyfin' : tab[1]);
@@ -154,6 +154,7 @@ export function createCinematic(host) {
     saveCache();
   }
   async function selectTab(kind) {
+    if(kind==='discover'){host.beforeLaunch();host.openApp('org.litefin.app',{cinemaPage:'discover'}).catch(function(){host.showToast('Apri Litefin per cercare e richiedere film con Seerr.');});return;}
     if(kind==='apps'){host.openApps();return;}
     if(kind==='search'){search.hidden=false;host.focus.focusElement(searchInput);return;}
     currentTab=kind;nav.querySelectorAll('button').forEach(function(b){const selected=b.dataset.cinemaTab===kind;b.classList.toggle('selected',selected);b.setAttribute('aria-current',selected?'page':'false');});
