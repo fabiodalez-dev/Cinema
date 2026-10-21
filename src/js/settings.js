@@ -3576,7 +3576,7 @@ export function createSettingsPanel(panel, getConfig, options) {
 
     const customSection = document.createElement('section');
     customSection.className = 'settings-section';
-    customSection.innerHTML = '<h3>Custom app</h3><p class="settings-hint">Pin any installed app by its App ID and choose a bundled icon. Find the App ID on your TV or in the Homebrew app list.</p>';
+    customSection.innerHTML = '<h3>Custom app</h3><p class="settings-hint">Pin any installed app by its App ID. It keeps its own icon unless you pick a bundled one. Find the App ID on your TV or in the Homebrew app list.</p>';
 
     const customAppIdInput = document.createElement('input');
     customAppIdInput.type = 'text';
@@ -3595,11 +3595,19 @@ export function createSettingsPanel(panel, getConfig, options) {
     const iconPreview = document.createElement('img');
     iconPreview.className = 'settings-app-icon';
     iconPreview.alt = '';
-    iconPreview.src = BUILTIN_ICON_CHOICES[0].value;
+    iconPreview.hidden = true;
 
-    const iconSelect = createOptionStepper('', 1402, BUILTIN_ICON_CHOICES, BUILTIN_ICON_CHOICES[0].value, function (value) {
-      iconPreview.src = value;
-    });
+    // '' = the app's own icon, looked up on the TV when the dock is drawn.
+    const iconSelect = createOptionStepper(
+      '',
+      1402,
+      [{value: '', label: 'App’s own icon'}].concat(BUILTIN_ICON_CHOICES),
+      '',
+      function (value) {
+        iconPreview.hidden = !value;
+        if (value) iconPreview.src = value;
+      }
+    );
 
     const iconRow = labeledControl('Icon', iconSelect);
     iconRow.insertBefore(iconPreview, iconRow.lastChild);
@@ -4314,7 +4322,7 @@ export function createSettingsPanel(panel, getConfig, options) {
         id: entry.id,
         launchId: entry.launchId,
         title: entry.title || entry.launchId || entry.id,
-        icon: entry.icon || ''
+        icon: entry.icon || (appsByIdMap[entry.launchId] && appsByIdMap[entry.launchId].icon) || ''
       };
     });
 
