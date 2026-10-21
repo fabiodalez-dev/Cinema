@@ -1,3 +1,4 @@
+import {createCinematic} from './cinematic.js';
 import {setClockTime} from './clock-format.js';
 import {createAllApps} from './all-apps.js';
 import './compat.js';
@@ -25,7 +26,8 @@ import {
   writeAutoBackup,
   setSystemVolume,
   setScreensaverTimeout,
-  execRoot
+  execRoot,
+  lunaRequest
 } from './luna.js';
 import {isHomeApp} from './remote.js';
 import {isTerminalAppId, getAppIdCandidates} from './app-icons.js';
@@ -46,6 +48,7 @@ const APP_ID = 'org.webosbrew.lounge.launcher';
 // updates them (see keepSettingsFromBeforeUpdate).
 const storedSettingsAtStart = readStoredConfigText();
 let baseConfig = loadConfig();
+let cinematic = null;
 let visible = true;
 let foregroundTimer = null;
 let lastForegroundAppId = APP_ID;
@@ -244,6 +247,7 @@ const settings = createSettingsPanel(elements.settingsPanel, getBaseConfig, {
     }
   },
   onRendered: function () {
+    if (cinematic) cinematic.mountSettings(elements.settingsPanel);
     // Land focus inside the panel so wheel / arrows navigate options immediately.
     if (focus && typeof focus.focusWithin === 'function') {
       focus.focusWithin('#settings-panel');
@@ -555,11 +559,11 @@ function formatClockDate(date, timezone) {
     options.timeZone = timezone;
   }
   try {
-    return new Intl.DateTimeFormat('en-GB', options).format(date);
+    return new Intl.DateTimeFormat('it-IT', options).format(date);
   } catch (err) {
     // Invalid timezone — fall back to local date.
     delete options.timeZone;
-    return new Intl.DateTimeFormat('en-GB', options).format(date);
+    return new Intl.DateTimeFormat('it-IT', options).format(date);
   }
 }
 
@@ -651,6 +655,7 @@ function applyIconLayout() {
   if (!grid || !launcher) return;
   const config = getConfig();
   const layout = (config.launcher && config.launcher.iconLayout) || 'scroll';
+  document.body.classList.toggle('cinema-wrapped', layout !== 'scroll');
   launcher.classList.toggle('layout-scroll', layout === 'scroll');
   launcher.classList.toggle('layout-wrap', layout !== 'scroll');
   if (layout === 'scroll') {
@@ -822,10 +827,12 @@ function applyPerfMode() {
 async function refreshAll(opts) {
   const resume = !!(opts && opts.resume);
   updateClock();
+  if (cinematic) cinematic.refresh(false);
   applyIconAlign();
   applyPerfMode();
   applyGlassTint();
   music.applyConfig();
+  document.body.classList.toggle('cinema-noambient', !(getConfig().music && getConfig().music.enabled));
   // Paints the cached forecast at once; the network fetch (if stale) is not awaited.
   weather.refresh();
   // Returning from an app: the wallpaper and playlist stay as they are when
@@ -1405,6 +1412,28 @@ async function init() {
     syncRootHooks(cfg, {quiet: true}).catch(function () { /* ignore */ });
   }
   syncVoice(cfg);
+}
+
+// Additive presentation layer: original controllers, settings and services remain.
+try {
+  cinematic = createCinematic({
+    getConfig: getConfig,
+    focus: focus,
+    showToast: showToast,
+    openApps: function () { allApps.show(); },
+    beforeLaunch: beforeInputLaunch,
+    openApp: function (id, params) {
+      if (!params || !Object.keys(params).length) {
+        return launchApp(id).catch(function () { return launchAppViaRoot(id); });
+      }
+      return lunaRequest('luna://com.webos.applicationManager', {
+        method: 'launch', parameters: {id: id, params: params}
+      });
+    }
+  });
+} catch (err) {
+  document.body.classList.remove('cinematic');
+  console.error('Cinema unavailable; original Home remains active', err);
 }
 
 init().catch(function (err) {

@@ -1,5 +1,5 @@
 function hasWebOS() {
-  return typeof window !== 'undefined' && window.webOS && window.webOS.service;
+  return typeof window !== 'undefined' && window.PalmServiceBridge && window.webOS && window.webOS.service;
 }
 
 /**

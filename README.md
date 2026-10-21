@@ -1,3 +1,11 @@
+# Launch Home Cinema
+
+Fork con interfaccia ispirata a Google TV, icone native e integrazione Jellyfin per film, serie e musica. Le funzioni originali restano disponibili. **Tasto giallo:** Cinema / vista originale.
+
+Vedi [CINEMA.md](CINEMA.md) per build e configurazione, e [VALIDATION.md](VALIDATION.md) per i controlli e i limiti della verifica.
+
+---
+
 # webOS Launch Home
 
 A fullscreen home screen for rooted LG webOS TVs. Pick an app, switch inputs, and enjoy ambient background music — without the stock launcher clutter.

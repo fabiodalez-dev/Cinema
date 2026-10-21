@@ -1,0 +1,142 @@
+/* Cinema follows the supplied 1920x1080 composition. All legacy styles stay intact. */
+.cinema-backdrop,.cinema-scrim,.cinema-nav,.cinema-status,.cinema-hero,.cinema-media,.cinema-search{display:none}
+body.cinematic{background:#050507;color:#f7f6f4;font-family:"LG Smart UI","Segoe UI",Arial,sans-serif}
+body.cinematic #app{width:1920px;height:1080px;transform-origin:0 0;position:absolute;background:#050507}
+body.cinematic #background-layer{background-size:cover;background-position:center}
+body.cinematic .cinema-backdrop{display:block;position:absolute;left:0;right:0;top:0;bottom:0;background-position:center 35%;background-size:cover;pointer-events:none}
+body.cinematic .cinema-scrim{display:block;position:absolute;left:0;right:0;top:0;bottom:0;background:linear-gradient(90deg,rgba(5,5,7,.9),rgba(5,5,7,.48) 40%,rgba(5,5,7,.04) 78%),linear-gradient(0deg,#050507 4%,rgba(5,5,7,.94) 14%,rgba(5,5,7,.3) 49%,rgba(5,5,7,0) 73%,rgba(5,5,7,.4));pointer-events:none}
+body.cinematic #scrim,body.cinematic #dim{opacity:0}
+body.cinematic .top-bar{position:absolute;left:80px;right:80px;top:42px;height:74px;min-height:0;padding:0;z-index:5}
+body.cinematic .clock-stack{position:absolute!important;left:0!important;right:auto!important;top:5px!important;transform:none!important;text-align:left!important;display:flex;flex-direction:row;align-items:baseline;width:400px;pointer-events:none}
+body.cinematic .clock{font-size:44px!important;font-weight:300;line-height:1.2;letter-spacing:-1.5px;white-space:nowrap}
+body.cinematic .clock-date{font-size:18px!important;margin-left:16px;max-width:260px;line-height:1.3;color:rgba(247,246,244,.65);white-space:normal;text-transform:capitalize}
+body.cinematic .cinema-nav{display:flex;position:absolute;left:50%;top:0;transform:translateX(-50%);align-items:center;padding:6px;border-radius:40px;border:1px solid rgba(247,246,244,.18);background:rgba(42,42,46,.88);height:70px}
+body.cinematic button{font-family:inherit}
+body.cinematic .cinema-tab{border:0;outline:none;border-radius:32px;background:transparent;color:rgba(247,246,244,.75);height:56px;padding:0 25px;font-size:22px;font-weight:600;white-space:nowrap;cursor:pointer;transition:background-color 150ms,color 150ms,transform 150ms ease-out}
+body.cinematic .cinema-tab.selected{background:rgba(247,246,244,.16);color:#f7f6f4}
+body.cinematic .cinema-tab.focused,body.cinematic .cinema-tab:focus{background:#f7f6f4;color:#141418;box-shadow:0 0 0 3px rgba(var(--focus-ring-rgb),.45)}
+body.cinematic .top-actions{top:1px;right:0}
+body.cinematic #app-settings-btn{width:62px;height:62px;border-radius:32px;backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(42,42,46,.9)}
+body.cinematic .cinema-status{display:block;position:absolute;right:84px;top:22px;font-size:18px;color:rgba(247,246,244,.65);max-width:260px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap}
+body.cinematic .cinema-status:before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:#9e9da2;margin-right:9px;vertical-align:middle}
+body.cinematic .cinema-status.online:before{background:#7ee2a8}
+body.cinematic .weather-panel{top:84px!important;left:auto!important;right:0!important;max-width:400px;padding:12px 18px;border-radius:24px;background:rgba(30,30,34,.86);backdrop-filter:none;-webkit-backdrop-filter:none;font-size:18px}
+body.cinematic .weather-panel[hidden]{display:none}
+body.cinematic .cinema-hero{display:block;position:absolute;left:80px;top:225px;width:1020px;z-index:2}
+body.cinematic .cinema-kicker{display:inline-block;padding:7px 14px;font-size:16px;font-weight:700;letter-spacing:2px;border-radius:20px;background:rgba(247,246,244,.14);border:1px solid rgba(247,246,244,.16)}
+body.cinematic .cinema-title{margin:20px 0 0;font-size:116px;line-height:.98;max-height:238px;max-width:1020px;font-weight:800;letter-spacing:-5px;white-space:pre-line;overflow:hidden;text-shadow:0 3px 35px rgba(5,5,7,.24)}
+body.cinematic .cinema-title.long{font-size:86px;letter-spacing:-3px;line-height:1.05;max-height:190px}
+body.cinematic .cinema-meta{font-size:21px;font-weight:500;color:rgba(247,246,244,.8);margin-top:25px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:920px}
+body.cinematic .cinema-description{max-width:780px;max-height:76px;overflow:hidden;margin:18px 0 0;font-size:24px;line-height:1.5;color:rgba(247,246,244,.83);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+body.cinematic .cinema-actions{display:flex;margin-top:26px;align-items:center}
+body.cinematic .cinema-actions>*+*{margin-left:14px}
+body.cinematic .cinema-primary,body.cinematic .cinema-secondary{height:64px;border-radius:34px;font-size:23px;font-weight:600;padding:0 28px;outline:none;border:1px solid rgba(247,246,244,.15);cursor:pointer;transition:transform 160ms ease-out,background-color 160ms ease-out;white-space:nowrap}
+body.cinematic .cinema-primary{background:#f7f6f4;color:#111116;border:0}
+body.cinematic .cinema-secondary{background:rgba(45,45,51,.9);color:#f7f6f4}
+body.cinematic .cinema-primary.focused,body.cinematic .cinema-secondary.focused,body.cinematic .cinema-search input.focused{box-shadow:0 0 0 4px rgba(var(--focus-ring-rgb),1),0 8px 30px rgba(5,5,7,.4);transform:scale(1.035)}
+body.cinematic .cinema-actions .cinema-secondary:last-child{font-size:18px;background:rgba(30,30,34,.7);padding:0 22px;color:rgba(247,246,244,.75)}
+body.cinematic .cinema-media{display:block;position:absolute;left:80px;right:0;top:704px;height:220px;z-index:3}
+body.cinematic .cinema-rail-heading{display:flex;align-items:baseline;margin-bottom:21px;height:30px}
+body.cinematic .cinema-rail-heading h2{font-size:25px;font-weight:700;margin:0;letter-spacing:-.3px}
+body.cinematic .cinema-rail-heading span{font-size:18px;margin-left:16px;color:rgba(247,246,244,.45)}
+body.cinematic .cinema-rail{display:flex;overflow-x:auto;overflow-y:hidden;padding:10px 12px 16px 8px;margin-left:-8px;max-width:1840px;scrollbar-width:none}
+body.cinematic .cinema-rail::-webkit-scrollbar{display:none}
+body.cinematic .cinema-card{width:322px;height:177px;position:relative;border-radius:18px;border:0;padding:0;flex:0 0 auto;outline:none;color:#f7f6f4;overflow:hidden;background:#27272d;cursor:pointer;transition:transform 160ms ease-out;box-shadow:0 0 0 1px rgba(247,246,244,.1)}
+body.cinematic .cinema-card+.cinema-card{margin-left:22px}
+body.cinematic .cinema-card.focused{transform:scale(1.025);box-shadow:0 0 0 4px rgba(var(--focus-ring-rgb),1)}
+body.cinematic .cinema-card-image{position:absolute;width:100%;height:100%;object-fit:cover;left:0;top:0}
+body.cinematic .cinema-card-shade{position:absolute;left:0;right:0;top:0;bottom:0;background:linear-gradient(0deg,rgba(5,5,7,.94),rgba(5,5,7,.35) 50%,transparent)}
+body.cinematic .cinema-card-text{position:absolute;left:18px;right:18px;bottom:15px;text-align:left}
+body.cinematic .cinema-card-text strong{display:block;font-size:23px;font-weight:700;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+body.cinematic .cinema-card-text>span{display:block;font-size:15px;margin-top:5px;color:rgba(247,246,244,.72);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.cinematic .cinema-progress{height:3px;background:rgba(247,246,244,.28);margin-top:10px;border-radius:2px;overflow:hidden}
+body.cinematic .cinema-progress i{display:block;height:100%;background:#f7f6f4}
+body.cinematic .cinema-shortcut{padding:21px 24px;text-align:left;background:linear-gradient(130deg,#25364a,#17202d)}
+body.cinematic .cinema-shortcut.youtube{background:linear-gradient(130deg,#7c222e,#33171e)}
+body.cinematic .cinema-shortcut.inputs{background:linear-gradient(130deg,#24564b,#142a27)}
+body.cinematic .cinema-shortcut.apps{background:linear-gradient(130deg,#4d405d,#231e2c)}
+body.cinematic .cinema-shortcut-glyph{font-size:38px;line-height:1.1;display:block;margin-bottom:14px;font-weight:300}
+body.cinematic .cinema-shortcut strong{display:block;font-size:24px}
+body.cinematic .cinema-shortcut>span:last-child{display:block;font-size:17px;margin-top:5px;opacity:.65}
+body.cinematic .launcher{position:absolute;left:64px;right:64px;bottom:18px;top:auto;width:auto;height:auto;max-height:190px;padding:0 12px!important;z-index:4;display:flex;flex-direction:column;align-items:center;overflow:visible}
+body.cinematic .launcher>*+*{margin-top:0}
+body.cinematic #app-grid-shell{padding:0 14px;width:auto!important;max-width:1700px!important;border-radius:36px;border:1px solid rgba(247,246,244,.17);background:rgba(39,39,45,.94);box-shadow:0 16px 48px rgba(5,5,7,.4)}
+body.cinematic #app-grid{padding:15px 10px 21px;max-width:1660px;max-height:172px;display:flex;align-items:center;justify-content:flex-start;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+body.cinematic #app-grid>.app-tile+*{margin-left:18px}
+body.cinematic #app-grid .app-tile{width:calc(86px * var(--tile-scale,1));height:calc(86px * var(--tile-scale,1));min-width:calc(86px * var(--tile-scale,1));padding:0;border-radius:calc(24px * var(--tile-scale,1));background:rgba(var(--glass-rgb),var(--glass-top));backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:none;display:flex;align-items:center;justify-content:center;flex-direction:column;overflow:visible;transition:transform 160ms ease-out}
+body.cinematic #app-grid .app-icon,body.cinematic #app-grid .app-fallback{width:calc(84px * var(--tile-scale,1));height:calc(84px * var(--tile-scale,1));border-radius:calc(23px * var(--tile-scale,1));margin:0;box-shadow:none;font-size:30px}
+body.cinematic #app-grid .app-label{position:absolute;bottom:106%;left:50%;transform:translateX(-50%);max-width:280px;padding:7px 12px;border-radius:12px;font-size:17px;background:#f7f6f4;color:#17171d;opacity:0;margin:0;pointer-events:none}
+body.cinematic #app-grid .app-tile.focused{transform:translateY(-4px) scale(1.06);box-shadow:0 0 0 3px rgba(var(--focus-ring-rgb),1);z-index:2}
+body.cinematic #app-grid .app-tile.focused .app-label{opacity:1}
+body.cinematic #app-grid .app-key{font-size:12px;min-width:19px;height:19px;top:2px;right:2px;z-index:2}
+body.cinematic #input-row{display:none}
+body.cinematic.cinema-live #input-row{display:flex;position:absolute;bottom:300px;left:16px;right:16px;flex-wrap:wrap;justify-content:flex-start}
+body.cinematic #channel-strip:not([hidden]){position:absolute;bottom:360px;left:16px;right:16px;z-index:6;background:rgba(15,15,21,.96);padding:20px;border-radius:24px;max-height:360px;overflow:auto}
+body.cinematic.cinema-live .cinema-media{visibility:hidden;pointer-events:none}
+body.cinematic .app-scroll-edge{display:none}
+body.cinematic .music-bar{bottom:175px;right:80px;background:rgba(30,30,34,.9);backdrop-filter:none;-webkit-backdrop-filter:none;z-index:5}
+body.cinematic .cinema-search:not([hidden]){display:flex;position:absolute;left:50%;transform:translateX(-50%);top:135px;padding:16px;background:#27272d;border-radius:28px;z-index:7;align-items:center;box-shadow:0 12px 40px rgba(5,5,7,.5)}
+body.cinematic .cinema-search input{width:620px;height:62px;padding:0 22px;border-radius:30px;font-size:25px;color:#f7f6f4;background:#15151b;border:1px solid #62626c;outline:none}
+body.cinematic .cinema-search button{margin-left:14px}
+body.cinematic.settings-open .cinema-hero,body.cinematic.settings-open .cinema-media,body.cinematic.settings-open .cinema-search{visibility:hidden;pointer-events:none}
+body.cinematic.custom-screensaver-active .cinema-hero,body.cinematic.custom-screensaver-active .cinema-media,body.cinematic.custom-screensaver-active .cinema-search{visibility:hidden;pointer-events:none}
+body.cinematic .launcher.layout-wrap{max-height:500px}
+body.cinematic .launcher.layout-wrap #app-grid{max-height:420px;flex-wrap:wrap;justify-content:center;overflow-y:auto}
+body.cinematic .launcher.layout-wrap .app-tile{margin:12px 9px!important}
+
+@media(prefers-reduced-motion:reduce){body.cinematic *{transition:none!important;animation:none!important}}
+/* Google TV direction: flat controls, real app artwork, quiet chrome. */
+@font-face{font-family:Geist;src:url('../assets/fonts/Geist-400.ttf')}
+@font-face{font-family:Geist;src:url('../assets/fonts/Geist-600.ttf');font-weight:600}
+@font-face{font-family:Geist;src:url('../assets/fonts/Geist-700.ttf');font-weight:700}
+@font-face{font-family:Geist;src:url('../assets/fonts/Geist-800.ttf');font-weight:800}
+body.cinematic{font-family:Geist,"LG Smart UI",Arial,sans-serif}
+body.cinematic .cinema-nav{background:rgba(33,33,38,.86);box-shadow:none;border:0;height:66px}
+body.cinematic .cinema-tab{font-size:21px;font-weight:500;padding:0 23px;height:54px}
+body.cinematic .cinema-hero{top:215px;width:1080px;height:470px}
+body.cinematic .cinema-title{font-size:110px;line-height:.98;font-weight:700;letter-spacing:-5px;margin-top:19px;max-height:216px;max-width:1050px}
+body.cinematic .cinema-title.long{font-size:86px;max-height:190px;line-height:1.04;letter-spacing:-3px}
+body.cinematic .cinema-meta{position:absolute;top:280px;left:0;margin:0;font-size:19px;font-weight:400}
+body.cinematic .cinema-description{position:absolute;top:320px;left:0;margin:0;max-height:60px;line-height:1.4;font-size:22px;width:735px}
+body.cinematic .cinema-actions{position:absolute;top:399px;left:0;margin:0}
+body.cinematic .cinema-primary,body.cinematic .cinema-secondary{height:62px;border-radius:16px;font-size:22px;padding:0 27px;font-weight:600;box-shadow:none;background-image:none}
+body.cinematic .cinema-actions .cinema-secondary:last-child{font-size:22px;color:#f7f6f4;border-radius:16px;background:rgba(54,54,60,.95);padding:0 27px}
+body.cinematic .cinema-kicker{background:rgba(247,246,244,.12);font-size:14px;letter-spacing:1.5px;border:0;border-radius:6px;padding:7px 11px;font-weight:600}
+body.cinematic .cinema-media{top:690px}
+body.cinematic .cinema-rail-heading h2{font-size:24px;font-weight:600}
+body.cinematic .cinema-card{border-radius:13px;box-shadow:none;background:#28282e}
+body.cinematic .cinema-card-text strong{font-family:Geist,sans-serif;font-weight:600;font-size:22px}
+body.cinematic .cinema-shortcut,body.cinematic .cinema-shortcut.youtube,body.cinematic .cinema-shortcut.inputs,body.cinematic .cinema-shortcut.apps{background:#25252c;padding:20px 22px}
+body.cinematic .cinema-shortcut-icon{width:60px;height:60px;object-fit:contain;display:block;margin-bottom:12px;border-radius:12px}
+body.cinematic .cinema-shortcut strong{font-size:22px;font-weight:600}
+body.cinematic .cinema-shortcut>span:last-child{font-size:16px}
+body.cinematic #app-grid-shell{border:0;background:rgba(32,32,38,.95);border-radius:27px;box-shadow:none;padding:0 12px}
+body.cinematic #app-grid .app-tile{background:#28282e;background-image:none;border:0;border-radius:18px;box-shadow:none}
+body.cinematic #app-grid .app-icon{border-radius:18px;box-shadow:none}
+body.cinematic #app-grid .app-tile.focused{box-shadow:0 0 0 3px rgba(var(--focus-ring-rgb),1);transform:scale(1.06)}
+body.cinematic #app-grid .app-label{bottom:103%;background:#28282e;color:#f7f6f4;border-radius:7px;font-weight:500}
+body.cinematic .settings-button,body.cinematic .input-chip,body.cinematic .settings-icon{background-image:none;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+body.cinematic .cinema-status{right:84px;top:85px;max-width:215px;font-size:16px}
+body.cinematic .weather-panel{top:0!important;right:86px!important;max-width:170px;min-width:0;padding:9px 15px;height:62px;justify-content:center;border-radius:28px;pointer-events:auto;cursor:pointer}
+body.cinematic .weather-place,body.cinematic .weather-today-head,body.cinematic .weather-today-caption,body.cinematic .weather-today-detail,body.cinematic .weather-days,body.cinematic .weather-day,body.cinematic .weather-today-bottom{display:none}
+body.cinematic .weather-today{width:auto;padding:0;border:0}
+body.cinematic .weather-today-main{margin:0}
+body.cinematic .weather-today-main .weather-glyph{width:28px;height:28px}
+body.cinematic .weather-now{font-size:22px;font-weight:500;margin-left:10px;line-height:1}
+body.cinematic .weather-desc,body.cinematic .weather-today-range,body.cinematic .weather-today-precip{display:none}
+body.cinematic .music-bar{bottom:178px;right:80px;opacity:.8}
+body.cinematic.cinema-wrapped .cinema-media{visibility:hidden;pointer-events:none}
+body.cinematic .cinema-tab{padding:0 20px}
+body.cinematic.cinema-music .cinema-backdrop{left:54%;right:8%;top:180px;bottom:220px;background-size:contain;background-repeat:no-repeat}
+body.cinematic.cinema-music .cinema-card-image{object-fit:contain;object-position:right center;background:#24242b}
+body.cinematic .cinema-hero:not(.two-lines) .cinema-meta{top:178px}
+body.cinematic .cinema-hero:not(.two-lines) .cinema-description{top:220px}
+body.cinematic .cinema-hero:not(.two-lines) .cinema-actions{top:310px}
+body.cinematic .cinema-hero.fallback-hero .cinema-meta{top:280px}
+body.cinematic .cinema-hero.fallback-hero .cinema-description{top:320px}
+body.cinematic .cinema-hero.fallback-hero .cinema-actions{top:399px}
+body.cinematic #app-grid .app-tile.all-apps-tile .app-icon,body.cinematic #app-grid .app-tile.settings-tile .app-icon{box-shadow:none}
+
+body.cinematic.cinema-noambient .music-bar{display:none}
+
+body.cinematic #app-grid .all-apps-icon{background:#35353e;box-shadow:none}

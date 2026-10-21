@@ -14,6 +14,9 @@ const POINTER_AXIS_RATIO = 1.6;
 
 function focusRow(el) {
   if (!el) return '';
+  if (el.closest('#cinema-nav')) return 'cinema-nav';
+  if (el.closest('#cinema-actions')) return 'cinema-actions';
+  if (el.closest('#cinema-rail')) return 'cinema-rail';
   if (el.closest('#input-row')) return 'inputs';
   if (el.closest('#channel-strip')) return 'channels';
   if (el.closest('#app-grid')) return 'apps';
@@ -1015,6 +1018,31 @@ export function createFocusManager(root, handlers) {
       if (isVertical) {
         moveSequential(active, keyCode === REMOTE_KEY.DOWN ? 1 : -1);
         return;
+      }
+    }
+
+    // Cinema inserts media rows above the original dock. Walk adjacent visible
+    // rows before the legacy input/app shortcuts, which otherwise skip the rail.
+    if (document.body.classList.contains('cinematic') &&
+        !root.querySelector('.all-apps:not([hidden])') && !settingsOpen && isVertical) {
+      const groups = ['.top-bar', '#cinema-search', '#cinema-actions', '#cinema-rail', '#channel-strip', '#input-row', '#app-grid', '#music-bar'];
+      const rows = groups.map(function (selector) {
+        const node = root.querySelector(selector);
+        const controls = node ? Array.from(node.querySelectorAll('.focusable')).filter(isFocusable) : [];
+        return {node: node, controls: controls};
+      }).filter(function (row) {return row.controls.length;}).sort(function (a,b) {
+        return a.controls[0].getBoundingClientRect().top - b.controls[0].getBoundingClientRect().top;
+      });
+      const at = rows.findIndex(function (row) { return row.node.contains(active); });
+      if (at >= 0) {
+        const next = rows[at + (keyCode === REMOTE_KEY.DOWN ? 1 : -1)];
+        if (!next) return;
+        const x = active.getBoundingClientRect().left + active.getBoundingClientRect().width / 2;
+        next.controls.sort(function (a,b) {
+          const ar=a.getBoundingClientRect(), br=b.getBoundingClientRect();
+          return Math.abs(ar.left+ar.width/2-x)-Math.abs(br.left+br.width/2-x);
+        });
+        if (focusItem(next.controls[0])) return;
       }
     }
 

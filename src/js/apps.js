@@ -129,7 +129,7 @@ export function createAppGrid(container, getConfig, options) {
       fallback.textContent = '\u2699';
       button.insertBefore(fallback, label);
     });
-    setIconSrc(img, iconUrl || BUNDLED_SETTINGS_ICON);
+    setIconSrc(img, document.body.classList.contains('cinematic') ? 'assets/cinema-settings.svg' : (iconUrl || BUNDLED_SETTINGS_ICON));
     button.appendChild(img);
 
     const label = document.createElement('span');

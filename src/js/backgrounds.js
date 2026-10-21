@@ -54,6 +54,7 @@ export function setLiteImages(on) {
 /** Downloadable 1920px copy of a packaged built-in, from any of its URL forms. */
 function liteBuiltinUrl(url) {
   const m = /(?:^|\/)assets\/backgrounds\/([^/?#]+\.jpg)(?:[?#]|$)/.exec(String(url || ''));
+  if (m && m[1] === 'mountain-sunset.jpg') return resolveAppUrl('assets/backgrounds/1920/mountain-sunset.jpg');
   return m ? LITE_WALLPAPER_BASE + m[1] : '';
 }
 

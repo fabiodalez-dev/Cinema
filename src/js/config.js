@@ -17,7 +17,7 @@ export const DEFAULT_CONFIG = {
     source: 'builtin',
     mode: 'static',
     preset: 'warm-gradient',
-    builtin: 'azure-cove',
+    builtin: 'mountain-sunset',
     // Curated remote catalog id (see REMOTE_BACKGROUNDS); used when source is "url".
     remote: 'remote-01-cliff-ocean',
     // Selected Apple aerial clip (see AERIAL_BACKGROUNDS); used when source is "aerial".
@@ -37,7 +37,7 @@ export const DEFAULT_CONFIG = {
     shuffle: false
   },
   music: {
-    enabled: true,
+    enabled: false,
     source: 'builtin',
     builtin: 'midnight-lounge',
     // Subset of packaged track ids to rotate; empty = all built-ins.
@@ -57,7 +57,7 @@ export const DEFAULT_CONFIG = {
   // Home-screen forecast (Open-Meteo). Location defaults to City of London,
   // like the Atmosphere Android app; change it in Settings → Weather.
   weather: {
-    enabled: true,
+    enabled: false,
     units: 'c',
     location: {
       name: 'City of London, UK',
@@ -68,8 +68,8 @@ export const DEFAULT_CONFIG = {
   },
   launcher: {
     pinnedApps: [
-      'netflix', 'amazon.html', 'youtube.leanback.v4', 'com.apple.appletv',
-      'bbc.iplayer.lge', 'com.webos.app.browser', 'com.webos.app.mediadiscovery'
+      'org.litefin.app', 'youtube.leanback.v4', 'netflix', 'org.xbmc.kodi',
+      'com.webos.app.browser', 'org.webosbrew.hbchannel'
     ],
     customApps: [],
     inputs: ['HDMI_1', 'HDMI_2', 'HDMI_3', 'TV'],
@@ -92,7 +92,7 @@ export const DEFAULT_CONFIG = {
     // Ring around what the remote is on, and the current-input marker: warm
     // (the original), white, border (same as glassBorder), blue, purple,
     // green or gold.
-    focusColour: 'warm',
+    focusColour: 'white',
     // All apps tile on the home row (opens the grid of every app on the TV).
     allAppsTile: true,
     // Remote number keys (1-9) open the home row tile at that position, with
@@ -109,8 +109,8 @@ export const DEFAULT_CONFIG = {
     iconLayout: 'scroll',
     iconsPerRow: 7,
     // Bundled Launch Home icons for known apps; false = the TV's own icons.
-    bundledIcons: true,
-    perfMode: false,
+    bundledIcons: false,
+    perfMode: true,
     bootOnStart: false,
     returnOnAppExit: false,
     // When true, press of the Home button (stock home coming to the
