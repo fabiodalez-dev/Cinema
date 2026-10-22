@@ -2,6 +2,17 @@
 
 Una Home per TV LG webOS con interfaccia ispirata a Google TV, icone native e libreria Jellyfin. Progettata per essere leggibile dal divano e navigabile con il telecomando, anche su TV con risorse limitate.
 
+## Schermate
+
+![Home locale di Cinema](docs/screenshots/cinema-home.png)
+
+<p align="center">
+  <img src="docs/screenshots/cinema-settings.png" width="49%" alt="Impostazioni di Cinema">
+  <img src="docs/screenshots/cinema-appearance.png" width="49%" alt="Personalizzazione degli sfondi">
+</p>
+
+Schermate del preview a 1920×1080, con dati personali omessi. La Home locale resta disponibile anche senza Jellyfin.
+
 ## Cosa offre
 
 - Film, serie, riprendi visione e album musicali Jellyfin, con cache e una Home locale sempre utilizzabile.

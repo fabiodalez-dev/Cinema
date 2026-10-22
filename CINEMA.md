@@ -1,4 +1,4 @@
-# Launch Home Cinema
+# Cinema
 
 A fork of [gprot42/webos-launch-home](https://github.com/gprot42/webos-launch-home), based on commit `51b901508dfc69e6fed492d61c2aeb1d4ef5f595`.
 
