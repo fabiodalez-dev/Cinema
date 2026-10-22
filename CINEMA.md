@@ -45,3 +45,9 @@ Selecting Live immediately embeds `tv://` with webOS' broadcast service behind t
 The native video pipeline is released when leaving Live, switching to the original interface, hiding the app or opening another app. Source changes remove the old pipeline before creating a new one. Ambient wallpaper motion/music and the in-app idle screensaver do not compete with Live viewing. Physical number, channel and volume keys are left to webOS during Live. A desktop preview explains that live video is TV-only; it never pretends to show a broadcast. Errors and missing signals retain source selection and the full-screen fallback.
 
 This uses the [webOS Homebrew input embedding mechanism](https://www.webosbrew.org/develop/guides/web-app/#inputtv-embedding). It does not change the launcher's window type or replace LG's native input applications.
+
+## TV settings and motion
+
+The application is displayed as **Cinema**. A full-screen settings surface uses a large category menu, independent content scrolling, 92 px rows, readable labels and native switches. All previous categories remain accessible, with a new Cinema page for Jellyfin, Seerr discovery/status, Home mapping status, boot, Live title shadows and lightweight animation preferences. The Home status reads LG Input Hook’s existing mapping; opening its configurator never rewrites that mapping automatically.
+
+Preferences apply with Salva, while Chiudi discards unsaved Cinema changes. The five boolean Cinema preferences are included in ordinary settings backups; Jellyfin/Seerr credentials are excluded. Existing app, voice, USB, weather, profile and backup controllers remain. Heavy performance effects stay disabled, with a small whitelist for 160–220 ms transform/opacity feedback. Reduced motion and the Cinema motion switch disable those effects. Upstream authorship and licence remain in repository documentation.

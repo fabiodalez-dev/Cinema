@@ -1,10 +1,10 @@
 /**
- * Socket to Launch Home's own voice assistant (voice/daemon, ws://127.0.0.1:8678).
+ * Socket to Cinema's own voice assistant (voice/daemon, ws://127.0.0.1:8678).
  *
  * The assistant sends {event, payload} messages (listening state, appLaunch,
  * transcriptFinal) and answers AI Voice settings requests as configResult.
- * On connect Launch Home says hello and only uses the socket once the reply
- * names Launch Home's service, so another voice assistant on this TV (e.g.
+ * On connect Cinema says hello and only uses the socket once the reply
+ * names Cinema's service, so another voice assistant on this TV (e.g.
  * VoxRelay, port 8677) is never talked to. Runs only while voice is turned
  * on in Settings; one shared connection serves the badge, voice launching
  * and settings.
@@ -93,7 +93,7 @@ function connect() {
       if (!verified) {
         if (data.event !== 'configResult' || data.id !== HELLO_ID) return;
         if (!data.ok || !data.result || data.result.service !== SERVICE_NAME) {
-          fail('Port 8678 is not Launch Home\'s voice service');
+          fail('Port 8678 is not Cinema\'s voice service');
           return;
         }
         verified = true;

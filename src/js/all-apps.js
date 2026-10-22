@@ -29,12 +29,12 @@ export function createAllApps(options) {
     panel.className = 'all-apps';
     panel.hidden = true;
     panel.setAttribute('role', 'dialog');
-    panel.setAttribute('aria-label', 'All apps');
+    panel.setAttribute('aria-label', 'Tutte le app');
 
     const head = document.createElement('div');
     head.className = 'all-apps-head';
     const title = document.createElement('h2');
-    title.textContent = 'All apps';
+    title.textContent = 'Tutte le app';
     const hint = document.createElement('span');
     hint.className = 'all-apps-hint';
     hint.textContent = 'OK opens an app · Back closes';

@@ -388,7 +388,7 @@ const VOICE_DISABLE = HOME_WATCHER_APP_DIR + '/disable-voice.sh';
 const VOICE_RUN = HOME_WATCHER_APP_DIR + '/voice-run.sh';
 
 /**
- * Install + start the root Home-button watcher so Home opens Launch Home even when
+ * Install + start the root Home-button watcher so Home opens Cinema even when
  * this web app is suspended.
  *
  * Runs a packaged enable script (not an inline command string). The previous
@@ -416,7 +416,7 @@ export function enableHomeWatcher() {
 /**
  * Settings -> TV check: model, memory, CPU load, background activity and how
  * long TV Settings takes to open (the script opens and closes it twice). About
- * 30-40 s. `appLine` (Launch Home's own settings) goes into the saved report.
+ * 30-40 s. `appLine` (Cinema's own settings) goes into the saved report.
  * Resolves with the plain-text report.
  */
 export function runTvCheck(appLine) {
@@ -431,11 +431,11 @@ export function runTvCheck(appLine) {
 }
 
 // Settings -> Backup & restore. The TV copy is outside the app folder, so it
-// survives reinstalling Launch Home; a USB drive gets one in its lounge folder
-// (not config.json there, which Launch Home applies at every start).
+// survives reinstalling Cinema; a USB drive gets one in its lounge folder
+// (not config.json there, which Cinema applies at every start).
 const SETTINGS_BACKUP_FILE = '/home/root/.config/launch-home/settings-backup.json';
 const USB_SETTINGS_BACKUP_NAME = 'launch-home-settings.json';
-// Copies Launch Home keeps by itself: before each restore (one, replaced each
+// Copies Cinema keeps by itself: before each restore (one, replaced each
 // time) and before each update (the newest few).
 const SETTINGS_AUTO_DIR = '/home/root/.config/launch-home/auto';
 const AUTO_UPDATE_COPIES = 3;
@@ -609,11 +609,11 @@ function rootScriptOutput(execPromise) {
 
 /**
  * Settings -> AI Voice -> Voice assistant on: installs the voice card and a
- * boot hook and starts Launch Home's own voice daemon (scripts/enable-voice.sh).
+ * boot hook and starts Cinema's own voice daemon (scripts/enable-voice.sh).
  * Safe to repeat; after an update it restarts the daemon on the new code. The
  * first run installs the card, so allow a minute or two.
  * Resolves {listening, otherVoice}; otherVoice is 'running' or 'installed' when
- * VoxRelay is also on the TV (Launch Home leaves it alone), else ''.
+ * VoxRelay is also on the TV (Cinema leaves it alone), else ''.
  */
 export function enableVoice() {
   const cmd =
@@ -621,7 +621,7 @@ export function enableVoice() {
     VOICE_ENABLE + '"';
   return rootScriptOutput(withTimeout(execRoot(cmd), 150000)).then(function (out) {
     if (out.indexOf('missing_voice') >= 0) {
-      throw new Error('voice files are missing from Launch Home');
+      throw new Error('voice files are missing from Cinema');
     }
     if (out.indexOf('missing_python') >= 0) {
       throw new Error('this TV has no Python 3');
@@ -640,7 +640,7 @@ export function enableVoice() {
   });
 }
 
-/** True while Launch Home's voice run loop is alive (voice-run.sh status). */
+/** True while Cinema's voice run loop is alive (voice-run.sh status). */
 export function isVoiceRunning() {
   const cmd = 'sh "' + VOICE_RUN + '" status 2>/dev/null || echo stopped';
   return withTimeout(execRoot(cmd), 8000).then(function (res) {
@@ -690,7 +690,7 @@ export function isHomeWatcherRunning() {
 }
 
 /**
- * Install Homebrew init.d hook so Launch Home launches after TV power-on.
+ * Install Homebrew init.d hook so Cinema launches after TV power-on.
  * Requires rooted TV + Homebrew Channel startup (webosbrew init.d).
  */
 export function enableBootLaunch() {
@@ -878,7 +878,7 @@ function snapToAllowedMinutes(minutes, allowed) {
 }
 
 /**
- * Map a Launch Home "screensaver after N minutes" choice to a valid
+ * Map a Cinema "screensaver after N minutes" choice to a valid
  * screenSaverTimer enum value. 0 / off → null (caller disables via
  * screenSaverEnabled).
  * @param {number|string|boolean} minutes
@@ -975,7 +975,7 @@ export function setScreensaverTimeout(minutes) {
 
 /**
  * Set the TV system volume (0–100). Best-effort across webOS audio services.
- * Used when entering Launch Home vs launching an external app.
+ * Used when entering Cinema vs launching an external app.
  */
 export function setSystemVolume(level) {
   let n = Math.round(Number(level));

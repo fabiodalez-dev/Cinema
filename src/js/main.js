@@ -45,7 +45,7 @@ import {APP_VERSION} from './version.js';
 
 const APP_ID = 'org.webosbrew.lounge.launcher';
 
-// The settings as the previous Launch Home stored them, before loadConfig()
+// The settings as the previous Cinema stored them, before loadConfig()
 // updates them (see keepSettingsFromBeforeUpdate).
 const storedSettingsAtStart = readStoredConfigText();
 let baseConfig = loadConfig();
@@ -87,7 +87,7 @@ const elements = {
 };
 
 const voiceIndicator = createVoiceIndicator(elements.voiceIndicator);
-// Launch Home's voice assistant socket only runs while voice is turned on.
+// Cinema's voice assistant socket only runs while voice is turned on.
 setVoiceWsEnabled(!!(baseConfig.launcher && baseConfig.launcher.voiceEnabled));
 const weather = createWeatherPanel(elements.weatherPanel, getConfig, {
   isVisible: function () { return visible; }
@@ -188,7 +188,7 @@ function syncHomeWatcher(config, opts) {
     (config.launcher.launchOnHome || config.launcher.returnOnAppExit));
   const apply = on ? enableHomeWatcher : disableHomeWatcher;
   return apply().then(function () {
-    if (on && !quiet) showToast('Home button → Launch Home is active');
+    if (on && !quiet) showToast('Home button → Cinema is active');
   }).catch(function (err) {
     console.error(err);
     if (on) {
@@ -255,8 +255,10 @@ const settings = createSettingsPanel(elements.settingsPanel, getBaseConfig, {
       focus.focusWithin('#settings-panel');
     }
   },
+  onCustomSave: function(config){if(cinematic)cinematic.applySettings(elements.settingsPanel,config);},
   onSave: function (savedConfig) {
     setConfig(savedConfig);
+    if(cinematic)cinematic.syncConfig(savedConfig);
     applyHomeVolume();
     applyScreensaverSetting();
     if (customScreensaver && typeof customScreensaver.applyConfig === 'function') {
@@ -523,9 +525,9 @@ function launchSystemApp(id) {
 }
 
 async function openTvSettings() {
-  // TV Settings opens as a panel over Launch Home, which stays on screen
+  // TV Settings opens as a panel over Cinema, which stays on screen
   // underneath: pause its animations now rather than waiting for a blur event
-  // (older webOS may not send one). Any key back in Launch Home clears it.
+  // (older webOS may not send one). Any key back in Cinema clears it.
   setAppInactive(true);
   const config = getConfig();
   if (config.music && config.music.pauseOnLaunch) {
@@ -828,7 +830,7 @@ function applyPerfMode() {
 }
 
 /**
- * @param {{resume?: boolean}} [opts] resume: returning to Launch Home; keeps
+ * @param {{resume?: boolean}} [opts] resume: returning to Cinema; keeps
  *   the dock as-is when nothing about it changed (see apps.refresh).
  */
 async function refreshAll(opts) {
@@ -863,7 +865,7 @@ async function refreshAll(opts) {
 
 // Reclaim system keyboard/pointer focus and re-select a dock tile.
 // After Home-button intercept, webOS often leaves INPUT routed to stock Home
-// even though Launch Home is painted on top — remote OK does nothing until we
+// even though Cinema is painted on top — remote OK does nothing until we
 // re-assert window focus and a real focusable tile.
 function reclaimInput() {
   // Settings is open (e.g. after a screensaver preview): stay on the row the
@@ -915,7 +917,7 @@ function scheduleReclaimBursts() {
   scheduleReclaimBursts.t3 = setTimeout(reclaimInput, 1600);
 }
 
-// An overlay app such as LG Settings takes the remote but leaves Launch Home
+// An overlay app such as LG Settings takes the remote but leaves Cinema
 // on screen underneath. Hold the wallpaper motion still meanwhile, so the TV
 // isn't re-compositing the 4K photo and the glass blur behind that panel on
 // every frame (its menus felt sluggish).
@@ -982,7 +984,7 @@ function shouldInterceptHome(launcher) {
   if (!launcher) return false;
   // launchOnHome (preferred) or legacy returnOnAppExit: when the stock home
   // comes to the foreground after another app (Home button or app exit),
-  // relaunch Launch Home so it acts as the home screen.
+  // relaunch Cinema so it acts as the home screen.
   return !!(launcher.launchOnHome || launcher.returnOnAppExit);
 }
 
@@ -1013,7 +1015,7 @@ async function maybeReturnToLounge(appId) {
   lastHomeLaunchAt = now;
 
   // In-app backup for the root home-watcher: whenever stock Home is foreground,
-  // bring Launch Home forward. (Root watcher is the reliable path when suspended.)
+  // bring Cinema forward. (Root watcher is the reliable path when suspended.)
   activity.returns += 1;
   returningToLounge = true;
   try {
@@ -1076,7 +1078,7 @@ async function pollForegroundOnce() {
     noteForeground(appId);
     const config = getConfig();
 
-    // Only pause ambient when we actually left Launch Home (or launched an app).
+    // Only pause ambient when we actually left Cinema (or launched an app).
     // Pausing whenever getForegroundApp() != us kills music on cold start
     // (poll often returns Home / empty for a few seconds after launch).
     if (
@@ -1426,6 +1428,7 @@ async function init() {
 try {
   cinematic = createCinematic({
     getConfig: getConfig,
+    persistCinemaPrefs: function(prefs){baseConfig.cinema=prefs;saveConfig(baseConfig);},
     focus: focus,
     showToast: showToast,
     openApps: function () { allApps.show(); },

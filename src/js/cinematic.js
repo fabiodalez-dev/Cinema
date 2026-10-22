@@ -1,3 +1,4 @@
+import {mountCinemaSettings, cinemaDraft, normalizeCinemaPrefs} from './cinema-settings.js';
 import {createLivePreview, liveDevices} from './cinema-live.js';
 import nativeCatalog from '../../assets/native-icons/catalog.json';
 import {request} from './cinema-jellyfin.js';
@@ -17,7 +18,7 @@ export function createCinematic(host) {
   const appMemory=read('lounge.apps.v1',{});
   Object.keys(nativeCatalog).forEach(function(id){if(!appMemory[id])appMemory[id]=nativeCatalog[id];});
   write('lounge.apps.v1',appMemory);
-  const prefs = Object.assign({enabled: true, jellyfin: true, backdrops: true}, read(PREFS, {}));
+  const prefs = normalizeCinemaPrefs(Object.assign({},read(PREFS, {}),host.getConfig().cinema||{}));
   let cached = read(CACHE, {items: [], resume: [], at: 0});
   let items = [], hero = null, client = null, connection = null, busy = false;
   let currentTab = 'home', generation = 0, imageGeneration = 0, lastRefresh = 0;
@@ -118,11 +119,13 @@ export function createCinematic(host) {
     root.style.transform = 'scale(' + scale + ')';
     root.style.left = ((window.innerWidth - 1920 * scale) / 2) + 'px'; root.style.top = ((window.innerHeight - 1080 * scale) / 2) + 'px';
   }
+  function paintPreferences(){document.body.classList.toggle('cinema-no-motion',prefs.motion===false);document.body.classList.toggle('cinema-live-no-shadow',prefs.liveShadow===false);}
+  function persistPreferences(){write(PREFS,prefs);if(host.persistCinemaPrefs)host.persistCinemaPrefs(Object.assign({},prefs));}
   function setEnabled(on) {
-    prefs.enabled=!!on; write(PREFS,prefs); document.body.classList.toggle('cinematic', prefs.enabled);
+    prefs.enabled=!!on; persistPreferences(); document.body.classList.toggle('cinematic', prefs.enabled);
     if(on)resumeLive();else{suspendLive();host.afterPreview();}
     fit(); if(!document.body.classList.contains('settings-open'))host.focus.focusHomeDock();
-    host.showToast(on ? 'Interfaccia Cinema attiva' : 'Home originale · tasto giallo per Cinema');
+    host.showToast(on ? 'Interfaccia Cinema attiva' : 'Vista essenziale · tasto giallo per Cinema');
   }
   function setStatus(text, online) { status.textContent=text; status.classList.toggle('online',!!online); }
   function setHero(item) {
@@ -165,6 +168,8 @@ export function createCinematic(host) {
     b.addEventListener('focus',function(){setHero(item);if(client&&!item.image)client.image(item,480).then(function(src){item.image=src;img.src=src;saveCache();}).catch(function(){});}); return b;
   }
   function showItems(next, label) {
+    section.classList.remove('cinema-content-enter');
+    requestAnimationFrame(function(){if(!document.hidden)section.classList.add('cinema-content-enter');});
     const oldFocus=document.activeElement; const wasInRail=rail.contains(oldFocus); const oldId=oldFocus&&oldFocus.dataset.itemId;
     items=next.slice(0,12); rail.innerHTML=''; railTitle.textContent=label;
     railInfo.textContent=items.length ? items.length+(items.length===1?' titolo':' titoli') : 'Sempre disponibili';
@@ -248,15 +253,33 @@ export function createCinematic(host) {
     finally{busy=false;}
   }
   function mountSettings(panel) {
-    const tools=panel.querySelector('.settings-tab-pane[data-tab="tools"]');if(!tools||tools.querySelector('.cinema-settings'))return;
-    const section=el('section','settings-section cinema-settings');section.appendChild(el('h2','','Cinema e Jellyfin'));
-    [['Interfaccia Cinema','enabled'],['Contenuti Jellyfin','jellyfin'],['Sfondi dalla libreria','backdrops']].forEach(function(pair,i){
-      const row=el('label','settings-row');row.appendChild(el('span','',pair[0]));const input=el('input','focusable');input.type='checkbox';input.checked=!!prefs[pair[1]];input.dataset.focusIndex=String(940+i);
-      input.addEventListener('change',function(){prefs[pair[1]]=input.checked;write(PREFS,prefs);if(pair[1]==='enabled'){setEnabled(input.checked);}else if(pair[1]==='jellyfin'){if(!input.checked){client=null;generation++;showItems([],'Le tue scorciatoie');setStatus('Home locale',false);}else refresh(true);}else setHero(hero);});row.appendChild(input);section.appendChild(row);
+    mountCinemaSettings(panel,{
+      prefs:prefs, refresh:refresh,
+      getInfo:function(){return {online:status.classList.contains('online'),userName:connection&&connection.userName,server:connection&&connection.server.replace(/^https?:\/\//,''),cached:!!cached.at};},
+      openLitefin:function(){suspendLive();host.beforeLaunch();host.openApp('org.litefin.app').catch(function(){host.showToast('Litefin non disponibile.');});},
+      openDiscover:function(){selectTab('discover');},
+      checkSeerr:async function(){if(!connection)connection=await loadConnection();return request(connection.server.replace(/\/+$/,'')+'/Litefin/Seerr/Status',connection.token,false);},
+      homeStatus:async function(){
+        if(!window.PalmSystem)throw new Error('Solo sulla TV');
+        const out=await timeout(execRoot('python -c \'import json; c=json.load(open("/home/root/.config/lginputhook/keybinds.json")); print(json.dumps({"home":c.get("773",{}).get("id")=="org.webosbrew.lounge.launcher"}))\''),5000);
+        return JSON.parse(out.stdoutString||(out.stdoutBytes?atob(out.stdoutBytes):''));
+      },
+      openInputHook:function(){suspendLive();host.beforeLaunch();host.openApp('org.webosbrew.inputhook').catch(function(){host.showToast('LG Input Hook non disponibile.');});}
     });
-    section.appendChild(button('Aggiorna Jellyfin', 'settings-button',944,function(){refresh(true);host.showToast('Aggiornamento Jellyfin richiesto');}));
-    section.appendChild(el('p','','Il tasto giallo alterna Cinema e interfaccia originale. Senza server, app e HDMI restano disponibili. Il collegamento Jellyfin è salvato solo su questa TV.'));
-    tools.insertBefore(section,tools.firstChild);
+  }
+  function applyPreferences(next){
+    const wasLive=isLive(), enabledChanged=next.enabled!==prefs.enabled, jellyfinChanged=next.jellyfin!==prefs.jellyfin, backdropChanged=next.backdrops!==prefs.backdrops;
+    Object.assign(prefs,normalizeCinemaPrefs(next));write(PREFS,prefs);
+    document.body.classList.toggle('cinematic',prefs.enabled);paintPreferences();fit();
+    if(enabledChanged){if(!prefs.enabled){suspendLive();if(wasLive)host.afterPreview();}else resumeLive();}
+    if(jellyfinChanged){generation++;if(!prefs.jellyfin){client=null;showItems([],'Le tue scorciatoie');setStatus('Home locale',false);}else refresh(true);}
+    if(backdropChanged){if(!prefs.backdrops)backdrop.style.backgroundImage='';else setHero(hero);}
+  }
+  function applySettings(panel,config){
+    const next=cinemaDraft(panel,prefs);config.cinema=normalizeCinemaPrefs(next);applyPreferences(next);
+  }
+  function syncConfig(config){
+    if(config.cinema)applyPreferences(normalizeCinemaPrefs(Object.assign({},prefs,config.cinema)));
   }
   // Yellow is unused upstream; all existing colour-key actions remain intact.
   document.addEventListener('keydown',function(e){if((e.keyCode===405||e.key==='y')&&!document.body.classList.contains('settings-open')&&document.activeElement.tagName!=='INPUT'){e.preventDefault();setEnabled(!prefs.enabled);}});
@@ -264,9 +287,9 @@ export function createCinematic(host) {
   window.addEventListener('pagehide',suspendLive);
   document.addEventListener('webOSRelaunch',function(){refresh(false);});
   window.addEventListener('resize',fit);
-  document.body.classList.toggle('cinematic',prefs.enabled);fit();
+  document.body.classList.toggle('cinematic',prefs.enabled);paintPreferences();fit();
   showItems(prefs.jellyfin?(cached.resume.length?cached.resume:cached.items):[],cached.resume.length?'Continua a guardare':cached.items.length?'Aggiunti di recente':'Le tue scorciatoie');
   if(cached.at)setStatus('Jellyfin offline',false);
   setTimeout(function(){refresh(true);},300);
-  return {refresh:refresh,mountSettings:mountSettings,setEnabled:setEnabled,isLive:isLive,suspendLive:suspendLive,refreshInputs:function(){if(isLive())renderLiveSources();},back:function(){if(!isLive())return false;selectTab('home');host.focus.focusElement(nav.querySelector('[data-cinema-tab=live]'));return true;}};
+  return {refresh:refresh,mountSettings:mountSettings,applySettings:applySettings,syncConfig:syncConfig,setEnabled:setEnabled,isLive:isLive,suspendLive:suspendLive,refreshInputs:function(){if(isLive())renderLiveSources();},back:function(){if(!isLive())return false;selectTab('home');host.focus.focusElement(nav.querySelector('[data-cinema-tab=live]'));return true;}};
 }

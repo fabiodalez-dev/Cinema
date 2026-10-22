@@ -113,7 +113,7 @@ export function createAppGrid(container, getConfig, options) {
     button.className = 'app-tile settings-tile focusable';
     button.dataset.focusIndex = String(index);
     button.dataset.action = 'tv-settings';
-    button.setAttribute('aria-label', 'TV Settings');
+    button.setAttribute('aria-label', 'Impostazioni TV');
 
     const img = document.createElement('img');
     img.className = 'app-icon';
@@ -134,7 +134,7 @@ export function createAppGrid(container, getConfig, options) {
 
     const label = document.createElement('span');
     label.className = 'app-label';
-    label.textContent = 'TV Settings';
+    label.textContent = 'Impostazioni TV';
     button.appendChild(label);
 
     button.addEventListener('click', function () {
@@ -158,7 +158,7 @@ export function createAppGrid(container, getConfig, options) {
     button.className = 'app-tile all-apps-launcher focusable';
     button.dataset.focusIndex = String(index);
     button.dataset.action = 'all-apps';
-    button.setAttribute('aria-label', 'All apps');
+    button.setAttribute('aria-label', 'Tutte le app');
 
     const icon = document.createElement('span');
     icon.className = 'app-fallback all-apps-icon';
@@ -167,7 +167,7 @@ export function createAppGrid(container, getConfig, options) {
 
     const label = document.createElement('span');
     label.className = 'app-label';
-    label.textContent = 'All apps';
+    label.textContent = 'Tutte le app';
     button.appendChild(label);
 
     button.addEventListener('click', function () {

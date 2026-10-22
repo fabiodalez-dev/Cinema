@@ -2,7 +2,7 @@
 
 Target: LG 43UN70006LA, firmware 04.64.00, ARM32, approximately 1 GB RAM.
 
-- Upstream tests retained. 42 automated checks cover remote routing, app launching, focus, aerial stepping and the added Jellyfin client (Authorization headers, timeout/401 rejection and malformed metadata), plus native Live source validation, lifecycle cleanup, stale callbacks, error/desktop fallback, early input discovery and remote-key routing.
+- Upstream tests retained. 46 automated checks cover remote routing, app launching, focus, aerial stepping and the added Jellyfin client (Authorization headers, timeout/401 rejection and malformed metadata), plus native Live source validation, lifecycle cleanup, stale callbacks, error/desktop fallback, early input discovery and remote-key routing.
 - IPK produced with the upstream packager. Archive file dates verified; transferred package SHA-256 compared before installation.
 - On-device checks: genuine installed app icons load; film/series/resume/music data and artwork come from Jellyfin; all nine original settings categories remain, with Cinema added to Tools.
 - Directional navigation moves between dock, media, hero actions and top navigation.
@@ -15,3 +15,12 @@ Target: LG 43UN70006LA, firmware 04.64.00, ARM32, approximately 1 GB RAM.
 The original voice assistant, external aerial sources, USB media browsing and weather are preserved in source but were not end-to-end exercised with personal API credentials or removable media. Automated media tests use a DOM environment which cannot decode or play real media. Preserving a feature does not imply every external service was live-tested.
 
 Device-only restore script: `/var/lib/launch-home-cinema/restore.sh`. It disables the fork's Home/boot hooks, restores Litefin's saved HTML, removes the adapter and requests removal of the launcher, then opens LG Home. It leaves the previously installed apps and debloat configuration intact.
+
+### Cinema 0.1.5 settings
+
+- Four additional automated checks cover draft isolation, moving the existing boot control without losing its handlers, duplicate mounting, native switch/row interaction, range readouts, Seerr success/failure, and exporting only supported boolean preferences.
+- Browser checks visit all ten categories: no row overflow and no original-project branding in their rendered text. Unsaved motion changes are discarded by Chiudi; saved changes persist after reloading; motion was restored enabled afterward.
+- Chromium 68 on the TV needs a block/absolute layout inside category buttons. A separate gallery container retains CSS grid. Large 92 px rows and 27 px text were verified on device.
+
+- On-device saving/cancel checks passed: unsaved motion changes were discarded, saved values appeared in the main config, and motion was restored enabled. Boot remained enabled and the alternative foreground Home watcher remained disabled. LG Input Hook status still reports Home → Cinema.
+- The Seerr verification action returned available on the TV. Native Live TV stayed at readyState 4 without a player error, and both title-shadow layers are active in performance mode. The settings entrance reports 220 ms. Reduced-motion emulation disables the entrance, while normal motion enables it.

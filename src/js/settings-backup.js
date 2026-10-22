@@ -4,7 +4,7 @@
  * a backup's settings to this version (configFromBackup).
  *
  * Compatibility: each file says which layout of the file (format), of the
- * settings (schema, i.e. config.version) and which Launch Home (appVersion)
+ * settings (schema, i.e. config.version) and which Cinema (appVersion)
  * wrote it. Every later version keeps reading older files; a file in a newer
  * format than this version knows is listed but not restored.
  */
@@ -42,7 +42,7 @@ export function lastBackupNote() {
 
 /**
  * The backup file for `config`. `opts.reason` is 'manual', 'before-restore' or
- * 'before-update'; `opts.appVersion` is the Launch Home that wrote these
+ * 'before-update'; `opts.appVersion` is the Cinema that wrote these
  * settings (default: this one) and `opts.updatedTo` the version it was being
  * updated to. ASCII only (other characters as \u escapes) so it can go through
  * the shell in pieces.
@@ -67,7 +67,7 @@ export function settingsBackupText(config, opts) {
 
 /**
  * A backup file's contents as {data, where, time, format, schema, appVersion,
- * reason, readable}, or null when it isn't a Launch Home backup. Files from
+ * reason, readable}, or null when it isn't a Cinema backup. Files from
  * 0.0.110 have no format or schema: format 1, schema from their settings.
  */
 export function parseBackup(text, where) {
@@ -93,7 +93,7 @@ export function parseBackup(text, where) {
   };
 }
 
-/** The Launch Home backups among `found` ([{where, text}]), newest first. */
+/** The Cinema backups among `found` ([{where, text}]), newest first. */
 export function listBackups(found) {
   return (found || []).map(function (entry) {
     return parseBackup(entry.text, entry.where);
@@ -120,21 +120,21 @@ function madeBy(b) {
   return b.appVersion ? ' (' + b.appVersion + ')' : '';
 }
 
-/** How a backup relates to this version of Launch Home, in words. */
+/** How a backup relates to this version of Cinema, in words. */
 export function compatibilityNote(b) {
   if (!b.readable) {
-    return 'Made by a newer Launch Home' + madeBy(b) + ' in a format this version can’t ' +
-      'read. Update Launch Home to restore it.';
+    return 'Made by a newer Cinema' + madeBy(b) + ' in a format this version can’t ' +
+      'read. Update Cinema to restore it.';
   }
   if (b.schema > CONFIG_SCHEMA_VERSION) {
-    return 'Made by a newer Launch Home' + madeBy(b) + '. Settings this version doesn’t ' +
+    return 'Made by a newer Cinema' + madeBy(b) + '. Settings this version doesn’t ' +
       'have are kept but not used.';
   }
   if (b.schema < CONFIG_SCHEMA_VERSION) {
-    return 'Made by an older Launch Home' + madeBy(b) + '. Its settings are updated for ' +
+    return 'Made by an older Cinema' + madeBy(b) + '. Its settings are updated for ' +
       'this version.';
   }
-  return 'Made by Launch Home' + (b.appVersion ? ' ' + b.appVersion : '') +
+  return 'Made by Cinema' + (b.appVersion ? ' ' + b.appVersion : '') +
     ', with the same settings as this version.';
 }
 
@@ -146,7 +146,7 @@ function listSome(paths) {
 export function restoreReport(b, result) {
   let text = 'Restored the settings from ' + backupWhen(b.data.savedAt) + ' (' + backupKind(b) +
     ', ' + (b.where === 'USB' ? 'USB drive' : 'TV') +
-    (b.appVersion ? ', Launch Home ' + b.appVersion : '') + ').';
+    (b.appVersion ? ', Cinema ' + b.appVersion : '') + ').';
   const kept = result.skipped.filter(function (s) { return s.why === 'type'; })
     .map(function (s) { return s.path; });
   const unused = result.skipped.filter(function (s) { return s.why === 'newer'; })

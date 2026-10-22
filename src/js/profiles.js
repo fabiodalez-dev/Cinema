@@ -1,6 +1,6 @@
 export const PROFILE_OPTIONS = [
-  {id: 'default', label: 'Default'},
-  {id: 'night', label: 'Night'},
+  {id: 'default', label: 'Standard'},
+  {id: 'night', label: 'Notte'},
   {id: 'cinema', label: 'Cinema'}
 ];
 

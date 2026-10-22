@@ -441,7 +441,7 @@ export function createMusicPlayer(getConfig, elements) {
     busyRetry = setTimeout(function () {
       busyRetry = null;
       urlCandidateIndex = 0;
-      // Another app is on screen: try when Launch Home is back (fadeInAndResume).
+      // Another app is on screen: try when Cinema is back (fadeInAndResume).
       if (document.hidden) {
         retryOnReturn = true;
         return;
@@ -603,7 +603,7 @@ export function createMusicPlayer(getConfig, elements) {
       pendingAutoplay = false;
       updateNowPlaying();
       // Should be unreachable with hard-coded fallback; keep quiet if it isn't.
-      console.error('Launch Home: music playlist empty after fallbacks');
+      console.error('Cinema: music playlist empty after fallbacks');
     }
   }
 

@@ -168,7 +168,7 @@ export function coerceScreensaverMinutes(minutes) {
 }
 
 export const TIMEZONE_OPTIONS = [
-  {value: '', label: 'TV local time'},
+  {value: '', label: 'Ora locale della TV'},
   {value: 'America/Los_Angeles', label: 'Pacific (US)'},
   {value: 'America/Denver', label: 'Mountain (US)'},
   {value: 'America/Chicago', label: 'Central (US)'},
