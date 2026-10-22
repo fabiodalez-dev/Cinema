@@ -24,3 +24,11 @@ Device-only restore script: `/var/lib/launch-home-cinema/restore.sh`. It disable
 
 - On-device saving/cancel checks passed: unsaved motion changes were discarded, saved values appeared in the main config, and motion was restored enabled. Boot remained enabled and the alternative foreground Home watcher remained disabled. LG Input Hook status still reports Home → Cinema.
 - The Seerr verification action returned available on the TV. Native Live TV stayed at readyState 4 without a player error, and both title-shadow layers are active in performance mode. The settings entrance reports 220 ms. Reduced-motion emulation disables the entrance, while normal motion enables it.
+
+## Cinema 0.1.8, 22 ottobre 2026
+
+62 test automatici passati: timer Live, mantenimento dello sfondo durante caricamenti/fallimenti e selezione del client tra installazioni complete e parziali. Scopri copre app assente, account da collegare e Seerr non disponibile. Il client preferito è un identificativo da lista chiusa, mai una credenziale.
+
+TV LG webOS 5: sfondo presente prima e dopo un aggiornamento forzato, zero transizioni allo sfondo vuoto osservate. Live dopo 10 secondi: navigazione e dock nascosti, scrim a opacità zero, video readyState 4; OK riapre i controlli, Schermo intero li nasconde subito. Scopri ha aperto Litefin su `#/discover` con la configurazione dell'utente. Controllata la presenza del selettore Automatico/Litefin/Moonfin/Jellyfin/Breezyfin/OcenFin nella versione installata.
+
+Gli altri client sono coperti dai test di selezione e fallback; non sono stati tutti installati, autenticati o sottoposti a prove di riproduzione su questa TV. Il supporto Seerr di Moonfin richiede la sua configurazione/plugin, distinta dal Litefin Companion già presente sul server.

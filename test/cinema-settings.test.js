@@ -9,14 +9,15 @@ function fixture(){
  mountCinemaSettings(panel,api);return {panel,api};
 }
 describe('Cinema settings',()=>{
- it('only exports supported boolean preferences to backups',()=>{
-  expect(normalizeCinemaPrefs({enabled:false,motion:false,token:'must-not-save',server:'private'})).toEqual({enabled:false,jellyfin:true,backdrops:true,motion:false,liveShadow:true});
+ it('only exports supported preferences to backups',()=>{
+  expect(normalizeCinemaPrefs({enabled:false,motion:false,token:'must-not-save',server:'private'})).toEqual({enabled:false,jellyfin:true,backdrops:true,motion:false,liveShadow:true,client:'auto'});
  });
  it('keeps drafts separate, preserves existing boot input handlers and mounts only once',()=>{
   const {panel,api}=fixture();
   const boot=panel.querySelector('[data-setting=boot]');const changed=vi.fn();boot.addEventListener('change',changed);
   expect(boot.closest('.cinema-remote-settings')).not.toBeNull();boot.click();expect(changed).toHaveBeenCalledOnce();
   const motion=panel.querySelector('[data-cinema-pref=motion]');motion.click();
+  const client=panel.querySelector('[data-cinema-client]');client.value='org.moonfin.webos';expect(cinemaDraft(panel,api.prefs).client).toBe('org.moonfin.webos');
   expect(api.prefs.motion).toBe(true);expect(cinemaDraft(panel,api.prefs).motion).toBe(false);
   mountCinemaSettings(panel,api);expect(panel.querySelectorAll('.cinema-settings')).toHaveLength(1);expect(cinemaDraft(panel,api.prefs).motion).toBe(false);
   expect(panel.textContent).not.toMatch(/Launch Home|Come home to/);

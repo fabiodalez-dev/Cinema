@@ -41,3 +41,11 @@ Le credenziali rimangono sul dispositivo o sul server, fuori da sorgenti, pacche
 ## Origine e licenze
 
 Basato su [gprot42/webos-launch-home](https://github.com/gprot42/webos-launch-home). La licenza originale è conservata in [LICENSE](LICENSE); altre attribuzioni e licenze degli asset sono indicate nei sorgenti e in CINEMA.md.
+
+## Client Jellyfin e Scopri
+
+In Impostazioni → Cinema si può scegliere il client preferito oppure Automatico. Cinema riconosce Litefin, Moonfin, Jellyfin, Breezyfin e OcenFin. L'elenco dello store indica webOS 5+ per Litefin, Moonfin e Jellyfin, 7+ per Breezyfin e 10+ per OcenFin: la disponibilità dipende dal televisore. Nessun client aggiuntivo viene installato automaticamente.
+
+I collegamenti diretti ai dettagli e alla ripresa usano l'adattatore Litefin opzionale; gli altri client si aprono nella propria interfaccia. Scopri resta sempre visibile. Con Litefin e il collegamento Seerr verificato apre direttamente il catalogo; con Moonfin spiega come usare la sua integrazione Seerr; con gli altri client offre l'apertura della libreria e la scelta di un client adatto. Senza app, account o server disponibili mostra un percorso di configurazione, lasciando accessibili Home, app e TV.
+
+In Live i controlli spariscono dopo 10 secondi senza interazioni. Schermo intero li nasconde subito; OK o una freccia li riaprono. Lo sfondo della Home resta visibile mentre l'immagine sostitutiva si carica.

@@ -1,6 +1,7 @@
+import {MEDIA_CLIENTS,normalizeMediaClient} from './cinema-clients.js';
 import {decorateSettings} from './settings-design.js';
 const KEYS=['enabled','jellyfin','backdrops','motion','liveShadow'];
-export function normalizeCinemaPrefs(value){const prefs={};KEYS.forEach(function(key){prefs[key]=!value||typeof value[key]!=='boolean'?true:value[key];});return prefs;}
+export function normalizeCinemaPrefs(value){const prefs={};KEYS.forEach(function(key){prefs[key]=!value||typeof value[key]!=='boolean'?true:value[key];});prefs.client=normalizeMediaClient(value&&value.client);return prefs;}
 function node(tag,cls,text){const n=document.createElement(tag);n.className=cls||'';if(text)n.textContent=text;return n;}
 export function mountCinemaSettings(panel,api){
  const pane=panel.querySelector('.settings-tab-pane[data-tab="cinema"]');if(!pane)return;
@@ -20,12 +21,13 @@ export function mountCinemaSettings(panel,api){
   const media=node('section','settings-section');media.appendChild(node('h3','','Jellyfin'));
   const connection=node('div','cinema-connection');connection.dataset.connection='jellyfin';
   const account=node('strong','','Collegamento Jellyfin');const detail=node('p','','Controllo del server…');connection.appendChild(account);connection.appendChild(detail);media.appendChild(connection);
-  function paint(){const info=api.getInfo();account.textContent=info.online?'Collegato a Jellyfin':info.server?'Jellyfin non raggiungibile':'Jellyfin da collegare';connection.dataset.state=info.online?'online':'offline';detail.textContent=[info.userName,info.server].filter(Boolean).join(' · ')||(info.cached?'La cache è disponibile. Puoi continuare ad aprire le app.':'Apri Litefin per gestire l’accesso.');}
+  function paint(){const info=api.getInfo();account.textContent=info.online?'Collegato a Jellyfin':info.server?'Jellyfin non raggiungibile':'Jellyfin da collegare';connection.dataset.state=info.online?'online':'offline';detail.textContent=[info.userName,info.server].filter(Boolean).join(' · ')||(info.cached?'La cache è disponibile. Puoi continuare ad aprire le app.':'Apri il tuo client Jellyfin per gestire l’accesso.');}
   paint();media.appendChild(toggle('Contenuti nella Home','jellyfin'));media.appendChild(toggle('Sfondi dalla libreria','backdrops'));
+  const clientRow=node('div','settings-row');clientRow.appendChild(node('span','','App Jellyfin preferita'));const clientSelect=document.createElement('select');clientSelect.className='focusable';clientSelect.dataset.cinemaClient='true';clientSelect.setAttribute('aria-label','App Jellyfin preferita');[{id:'auto',name:'Automatico'}].concat(MEDIA_CLIENTS).forEach(function(c){const o=document.createElement('option');o.value=c.id;o.textContent=c.name+(c.webos>5?' · webOS '+c.webos+'+':'');clientSelect.appendChild(o);});clientSelect.value=normalizeMediaClient(api.prefs.client);clientRow.appendChild(clientSelect);media.appendChild(clientRow);
   const actions=node('div','cinema-settings-actions');
   function action(label,handler){const b=node('button','settings-button focusable',label);b.type='button';b.dataset.focusIndex='946';b.addEventListener('click',handler);return b;}
   const refresh=action('Aggiorna libreria',async function(){refresh.disabled=true;refresh.textContent='Aggiornamento…';try{await api.refresh(true);}finally{refresh.disabled=false;refresh.textContent='Aggiorna libreria';paint();}});
-  actions.appendChild(refresh);actions.appendChild(action('Apri Litefin',function(){api.openLitefin();}));media.appendChild(actions);
+  actions.appendChild(refresh);actions.appendChild(action('Apri app Jellyfin',function(){api.openLitefin();}));media.appendChild(actions);
   media.appendChild(node('p','settings-hint','Film, serie e album musicali dalla tua libreria. Se il server è offline, restano i contenuti salvati e tutte le app. Gli accessi sono conservati sulla TV.'));pane.appendChild(media);
   const requests=node('section','settings-section');requests.appendChild(node('h3','','Scopri e richieste'));
   const seerr=node('div','cinema-connection');const seerrTitle=node('strong','','Seerr');const seerrDetail=node('p','','Verifica il collegamento del servizio richieste.');seerr.appendChild(seerrTitle);seerr.appendChild(seerrDetail);requests.appendChild(seerr);
@@ -33,7 +35,7 @@ export function mountCinemaSettings(panel,api){
   const check=action('Verifica Seerr',async function(){check.disabled=true;seerrDetail.textContent='Verifica in corso…';try{const result=await api.checkSeerr();const ok=!!(result.configured&&result.available);seerr.dataset.state=ok?'online':'offline';seerrTitle.textContent=ok?'Seerr disponibile':'Seerr non disponibile';seerrDetail.textContent=ok?'Puoi cercare e richiedere titoli da Scopri in Litefin.':'Apri Litefin e controlla il servizio richieste sul server.';}catch(_){seerr.dataset.state='offline';seerrTitle.textContent='Verifica non riuscita';seerrDetail.textContent='Jellyfin o il servizio richieste non risponde. Le app restano disponibili.';}finally{check.disabled=false;}});requestActions.appendChild(check);requests.appendChild(requestActions);pane.appendChild(requests);
   const live=node('section','settings-section');live.appendChild(node('h3','','Live TV'));
   live.appendChild(toggle('Ombra sui titoli della Live','liveShadow'));
-  live.appendChild(node('p','settings-hint','Live avvia subito la TV dietro ai controlli. Scegli un’altra fonte oppure passa a Schermo intero. Nella sezione Live e fonti trovi canali e nomi degli ingressi.'));pane.appendChild(live);
+  live.appendChild(node('p','settings-hint','Live avvia subito la TV dietro ai controlli. I comandi scompaiono dopo 10 secondi senza interazioni. Schermo intero li nasconde subito; OK o una freccia li riapre. Nella sezione Live e fonti trovi canali e nomi degli ingressi.'));pane.appendChild(live);
   const remote=node('section','settings-section cinema-remote-settings');remote.appendChild(node('h3','','Telecomando e avvio'));
   const home=node('div','cinema-connection');const homeTitle=node('strong','','Tasto Home');const homeInfo=node('p','','Verifica della rimappatura…');home.appendChild(homeTitle);home.appendChild(homeInfo);remote.appendChild(home);
   api.homeStatus().then(function(result){home.dataset.state=result.home?'online':'offline';homeTitle.textContent=result.home?'Home apre Cinema':'Tasto Home da configurare';homeInfo.textContent=result.home?'Rimappatura diretta attiva con LG Input Hook.':'Apri LG Input Hook per scegliere l’app da aprire con Home.';}).catch(function(){homeInfo.textContent='Verifica non disponibile. Puoi gestire il tasto da LG Input Hook.';});
@@ -51,5 +53,6 @@ export function mountCinemaSettings(panel,api){
 export function cinemaDraft(panel,current){
  const next=normalizeCinemaPrefs(current);const controls=panel.__cinemaDraft;
  if(controls)KEYS.forEach(function(key){if(controls[key]&&panel.contains(controls[key]))next[key]=!!controls[key].checked;});
+ const clientSelect=panel.querySelector('[data-cinema-client]');if(clientSelect)next.client=normalizeMediaClient(clientSelect.value);
  return next;
 }

@@ -1,8 +1,12 @@
+import {mediaCandidates,mediaLaunchParams} from './cinema-clients.js';
+import {createDiscoverPanel,discoverAvailability} from './cinema-discover.js';
+import {createBackdropPainter} from './cinema-backdrop.js';
+import {createLiveControls} from './cinema-live-controls.js';
 import {mountCinemaSettings, cinemaDraft, normalizeCinemaPrefs} from './cinema-settings.js';
 import {createLivePreview, liveDevices} from './cinema-live.js';
 import nativeCatalog from '../../assets/native-icons/catalog.json';
 import {request} from './cinema-jellyfin.js';
-import {execRoot} from './luna.js';
+import {execRoot,listApps} from './luna.js';
 import {createJellyfinClient, validConnection} from './cinema-jellyfin.js';
 
 const PREFS = 'launch-home.cinema.v1';
@@ -24,6 +28,7 @@ export function createCinematic(host) {
   let currentTab = 'home', generation = 0, imageGeneration = 0, lastRefresh = 0;
   const root = document.getElementById('app');
   const backdrop = el('div', 'cinema-backdrop');
+  const backdropPainter=createBackdropPainter(backdrop);
   backdrop.id = 'cinema-backdrop'; backdrop.setAttribute('aria-hidden', 'true');
   root.insertBefore(backdrop, root.children[1]);
   const scrim = el('div', 'cinema-scrim'); root.insertBefore(scrim, backdrop.nextSibling);
@@ -73,20 +78,78 @@ export function createCinematic(host) {
   const liveStatus=el('p','','');liveStatus.setAttribute('role','status');
   const liveSources=el('div','cinema-live-sources');liveSources.id='cinema-live-sources';
   const liveActions=el('div','cinema-live-actions');liveActions.id='cinema-live-actions';
-  const fullScreen=button('Schermo intero','cinema-primary',280,function(){
-    suspendLive();host.beforeLaunch();host.switchInput(liveDevice.id,liveDevice).catch(function(){host.showToast('Impossibile aprire la fonte.');resumeLive();});
-  });
+  const fullScreen=button('Schermo intero','cinema-primary',280,function(){liveControls.hide();});
   liveActions.appendChild(fullScreen);
   liveActions.appendChild(button('Riprova','cinema-secondary',281,function(){startLive(liveDevice);}));
   if(host.openChannels)liveActions.appendChild(button('Canali','cinema-secondary',282,host.openChannels));
+  liveActions.appendChild(button('Apri fonte LG','cinema-secondary',283,function(){suspendLive();host.beforeLaunch();host.switchInput(liveDevice.id,liveDevice).catch(function(){host.showToast('Impossibile aprire la fonte.');resumeLive();});}));
   [liveName,liveStatus,liveSources,liveActions].forEach(function(n){livePanel.appendChild(n);});root.appendChild(livePanel);
   let liveDevice={id:'TV',label:'Live TV',appId:'com.webos.app.livetv'};
   const livePreview=createLivePreview(root,{supported:!!window.PalmSystem,onStatus:function(text,state){
     liveStatus.textContent=text;livePanel.dataset.state=state;
   }});
+  let appSnapshot=null, appSnapshotAt=0;
+  async function mediaSnapshot(){if(appSnapshot&&Date.now()-appSnapshotAt<30000)return appSnapshot;appSnapshot=await listApps();appSnapshotAt=Date.now();return appSnapshot;}
+  async function launchMediaApp(item,discover){
+    const candidates=mediaCandidates(await mediaSnapshot(),prefs.client,discover);
+    for(const candidate of candidates){
+      try{suspendLive();host.beforeLaunch();await host.openApp(candidate.id,mediaLaunchParams(candidate,item,discover));return candidate;}
+      catch(_){/* An app may have been removed after the last scan. */}
+    }
+    appSnapshot=null;resumeLive();throw new Error('Nessun client disponibile');
+  }
+  const discoverPanel=createDiscoverPanel(root,{
+    focusBack:function(){host.focus.focusElement(nav.querySelector('[data-cinema-tab=discover]'));},
+    open:function(){launchMediaApp(null,true).catch(function(){discoverPanel.show(discoverAvailability({installed:false}));});},
+    install:function(){host.beforeLaunch();host.openApp('com.webos.app.browser',{target:'https://repo.webosbrew.org/apps/'}).catch(function(){host.showToast('Installa un client Jellyfin da Homebrew Channel.');});},
+    retry:function(){appSnapshot=null;openDiscover();}
+  });
+  async function openDiscover(){
+    const snapshot=await mediaSnapshot();
+    const candidates=mediaCandidates(snapshot,prefs.client,true);
+    const positive=candidates.filter(function(c){return (snapshot.apps||[]).some(function(a){return (a.id||a.appId)===c.id;});});
+    const selected=positive[0];
+    if(!selected){discoverPanel.show(discoverAvailability({installed:snapshot.complete?false:null}));return;}
+    // Moonfin owns its native Seerr setup and account; the official client owns its library.
+    if(selected.id!=='org.litefin.app'){discoverPanel.show({state:'client',client:selected.name,title:'Scopri con '+selected.name,description:selected.seerr?'Apri '+selected.name+' e usa la sua integrazione Seerr. Il collegamento si configura nel client e nel relativo plugin server.':'Il client '+selected.name+' apre la libreria Jellyfin. Per catalogo e richieste Seerr puoi scegliere Litefin o Moonfin nelle impostazioni.'});return;}
+    let seerr=false;
+    if(connection){try{const result=await request(connection.server.replace(/\/+$/,'')+'/Litefin/Seerr/Status',connection.token,false);seerr=!!(result.configured&&result.available);}catch(_){}}
+    const state=discoverAvailability({installed:true,connection:!!connection,seerr:seerr});
+    if(state.state==='ready')launchMediaApp(null,true).catch(function(){discoverPanel.show(discoverAvailability({installed:false}));});
+    else discoverPanel.show(state);
+  }
+  function overlayOpen(){return discoverPanel.isOpen()|| document.body.classList.contains('settings-open')||!!root.querySelector('.all-apps:not([hidden]),#channel-strip:not([hidden])');}
+  const liveControls=createLiveControls({isEligible:function(){return isLive()&&!document.hidden&&!overlayOpen();},onHidden:function(hidden){
+    document.body.classList.toggle('cinema-live-clean',hidden);
+    if(hidden&&document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+  }});
+  function revealLive(){const revealed=liveControls.activity();if(revealed)host.focus.focusWithin('#cinema-live-sources');return revealed;}
+  let lastMouse=null,hiddenMouse=null,ignoreClickUntil=0;
+  document.addEventListener('keydown',function(e){
+    if(!isLive()||overlayOpen())return;
+    const code=e.keyCode;
+    if([427,428,447,448,449].indexOf(code)>=0||/^[0-9]$/.test(e.key||'')||(code>=48&&code<=57)||(code>=96&&code<=105))return;
+    if(revealLive()){e.preventDefault();e.stopImmediatePropagation();}
+  },true);
+  document.addEventListener('mousedown',function(e){if(isLive()&&!overlayOpen()&&revealLive()){ignoreClickUntil=Date.now()+450;e.preventDefault();e.stopImmediatePropagation();}},true);
+  document.addEventListener('click',function(e){if(Date.now()<ignoreClickUntil){e.preventDefault();e.stopImmediatePropagation();return;}if(isLive()&&!overlayOpen())liveControls.activity();},true);
+  document.addEventListener('mousemove',function(e){
+    const point={x:e.clientX,y:e.clientY};
+    if(!isLive()||overlayOpen()){lastMouse=point;return;}
+    if(liveControls.isHidden()){
+      if(!hiddenMouse)hiddenMouse=lastMouse||point;
+      if(Math.abs(point.x-hiddenMouse.x)+Math.abs(point.y-hiddenMouse.y)>=28){revealLive();hiddenMouse=null;}
+    }else{hiddenMouse=null;if(!lastMouse||Math.abs(point.x-lastMouse.x)+Math.abs(point.y-lastMouse.y)>=4)liveControls.activity();}
+    lastMouse=point;
+  },true);
+  document.addEventListener('wheel',function(e){if(isLive()&&!overlayOpen()&&revealLive()){e.preventDefault();e.stopImmediatePropagation();}},{capture:true,passive:false});
+  let wasOverlay=false;
+  const liveOverlayObserver=new MutationObserver(function(){const open=overlayOpen();if(open===wasOverlay)return;wasOverlay=open;if(open)liveControls.pause();else liveControls.resume();});
+  liveOverlayObserver.observe(document.body,{attributes:true,attributeFilter:['class']});
+  liveOverlayObserver.observe(root,{attributes:true,attributeFilter:['hidden'],subtree:true});
   function isLive(){return prefs.enabled&&currentTab==='live';}
-  function suspendLive(){livePreview.stop();}
-  function resumeLive(){if(isLive()&&!document.hidden)startLive(liveDevice);}
+  function suspendLive(){livePreview.stop();liveControls.pause();}
+  function resumeLive(){if(isLive()&&!document.hidden){startLive(liveDevice);liveControls.enter();}}
   function renderLiveSources(){
     const labels=(host.getConfig().launcher||{}).inputLabels||{};
     const focused=document.activeElement&&document.activeElement.dataset.liveSource;
@@ -138,20 +201,20 @@ export function createCinematic(host) {
       title.classList.remove('long');
       meta.textContent = 'App, film e ingressi. Tutto a portata di telecomando.';
       description.textContent = 'Apri Jellyfin per la tua libreria, scegli un’app dal dock oppure passa alla TV e agli ingressi HDMI.';
-      play.textContent='▶  Apri Jellyfin'; backdrop.style.backgroundImage=''; return;
+      play.textContent='▶  Apri Jellyfin'; backdropPainter.clear(); return;
     }
     kicker.textContent = item.progress > 0 ? 'RIPRENDI DA DOVE ERI' : 'DALLA TUA LIBRERIA';
     title.textContent=item.title; title.classList.toggle('long',item.title.length>28);
     featured.classList.toggle('two-lines', title.scrollHeight > 135);
     meta.textContent = [item.artist, item.year, item.genres.join(' · '), item.type === 'Series' ? 'Serie TV' : item.type === 'MusicAlbum' ? 'Album' : item.minutes ? item.minutes+' min' : '', item.rating].filter(Boolean).join('   ·   ');
     description.textContent = item.overview || item.episode || 'Disponibile nella tua libreria Jellyfin.';
-    play.textContent = item.isMusic ? '▶  Ascolta in Litefin' : item.progress > 0 ? '▶  Riprendi in Litefin' : '▶  Apri in Litefin';
-    if (prefs.backdrops && (item.backdrop || item.image)) backdrop.style.backgroundImage = 'url("'+(item.backdrop || item.image)+'")';
-    else backdrop.style.backgroundImage='';
+    play.textContent = item.isMusic ? '▶  Ascolta' : '▶  Apri titolo';
+    if (prefs.backdrops) {backdropPainter.cancel();if(item.backdrop||item.image)backdropPainter.set(item.backdrop||item.image);}
+    else backdropPainter.clear();
     // Only load the focused hero image. At most one large decoded backdrop.
     if (client && prefs.backdrops && !item.backdrop) client.image(item, 1280).then(function (src) {
       if (mark !== imageGeneration || document.hidden) return;
-      item.backdrop=src; backdrop.style.backgroundImage='url("'+src+'")'; saveCache();
+      item.backdrop=src; backdropPainter.set(src); saveCache();
     }).catch(function () {});
   }
   function mediaCard(item, i) {
@@ -203,17 +266,17 @@ export function createCinematic(host) {
     saveCache();
   }
   async function selectTab(kind) {
-    if(kind==='discover'){suspendLive();host.beforeLaunch();host.openApp('org.litefin.app',{cinemaPage:'discover'}).catch(function(){host.showToast('Apri Litefin per cercare e richiedere film con Seerr.');});return;}
+    if(kind==='discover'){openDiscover();return;}
     if(kind==='apps'){host.openApps();return;}
     if(kind==='search'){if(currentTab==='live')selectTab('home');search.hidden=false;host.focus.focusElement(searchInput);return;}
     const wasLive=currentTab==='live';
-    if(kind!=='live')suspendLive();
+    if(kind!=='live'){suspendLive();liveControls.leave();}
     currentTab=kind;nav.querySelectorAll('button').forEach(function(b){const selected=b.dataset.cinemaTab===kind;b.classList.toggle('selected',selected);b.setAttribute('aria-current',selected?'page':'false');});
     const mark=++generation;
     document.body.classList.toggle('cinema-live',kind==='live');
     document.body.classList.toggle('cinema-music',kind==='music');
     if(wasLive&&kind!=='live')host.afterPreview();
-    if(kind==='live') {search.hidden=true;renderLiveSources();startLive({id:'TV',label:'Live TV',appId:'com.webos.app.livetv'});host.focus.focusWithin('#cinema-live-sources');return;}
+    if(kind==='live') {search.hidden=true;renderLiveSources();startLive({id:'TV',label:'Live TV',appId:'com.webos.app.livetv'});liveControls.enter();host.focus.focusWithin('#cinema-live-sources');return;}
     if(kind==='home'){showItems(cached.resume.length?cached.resume:cached.items,cached.resume.length?'Continua a guardare':'Aggiunti di recente');return;}
     if(!client){if(kind==='music'){showItems(cached.music||[],'La tua musica');return;}showItems(cached.items.filter(function(item){return kind==='movies'?item.type==='Movie':item.type==='Series';}),kind==='movies'?'I tuoi film':'Le tue serie');return;}
     setStatus('Caricamento…',true);
@@ -228,9 +291,7 @@ export function createCinematic(host) {
     catch(_){setStatus('Jellyfin non raggiungibile',false);host.showToast('Ricerca non disponibile. Riprova più tardi.');host.focus.focusElement(nav.children[0]);}
   }
   function openMedia(item) {
-    host.beforeLaunch();
-    const params=item?{cinemaItemId:item.id,cinemaAction:item.progress>0?'resume':'details'}:{};
-    host.openApp('org.litefin.app', params).catch(function(){host.showToast('Litefin non disponibile. Apri Jellyfin dalle app.');});
+    launchMediaApp(item,false).catch(function(){discoverPanel.show(discoverAvailability({installed:false}));});
   }
   async function loadConnection() {
     if (!window.PalmSystem && /^(127\.0\.0\.1|localhost)$/.test(location.hostname)) return request('/preview/connection', '', false);
@@ -245,6 +306,8 @@ export function createCinematic(host) {
       if(!client){connection=await loadConnection();client=createJellyfinClient(connection);if(cached.userId&&cached.userId!==connection.userId){cached={items:[],resume:[],at:0};showItems([],'Le tue scorciatoie');}}
       const results=await Promise.all([client.load('resume').catch(function(){return null;}),client.load('all')]);
       if(mark!==generation)return;
+      const previous=cached.items.concat(cached.resume).concat(cached.music||[]);
+      [results[1],results[0]||[]].forEach(function(list){list.forEach(function(item){const old=previous.find(function(n){return n.id===item.id;});if(old){item.image=item.image||old.image;item.backdrop=item.backdrop||old.backdrop;}});});
       cached={items:results[1],resume:results[0]||cached.resume,music:cached.music||[],at:Date.now(),userId:connection.userId};
       setStatus(connection.userName||'Jellyfin',true);
       if(currentTab==='home'){const list=cached.resume.length?cached.resume:cached.items;showItems(list,cached.resume.length?'Continua a guardare':'Aggiunti di recente');hydrate(list,mark);}
@@ -256,7 +319,7 @@ export function createCinematic(host) {
     mountCinemaSettings(panel,{
       prefs:prefs, refresh:refresh,
       getInfo:function(){return {online:status.classList.contains('online'),userName:connection&&connection.userName,server:connection&&connection.server.replace(/^https?:\/\//,''),cached:!!cached.at};},
-      openLitefin:function(){suspendLive();host.beforeLaunch();host.openApp('org.litefin.app').catch(function(){host.showToast('Litefin non disponibile.');});},
+      openLitefin:function(){openMedia(null);},
       openDiscover:function(){selectTab('discover');},
       checkSeerr:async function(){if(!connection)connection=await loadConnection();return request(connection.server.replace(/\/+$/,'')+'/Litefin/Seerr/Status',connection.token,false);},
       homeStatus:async function(){
@@ -273,7 +336,7 @@ export function createCinematic(host) {
     document.body.classList.toggle('cinematic',prefs.enabled);paintPreferences();fit();
     if(enabledChanged){if(!prefs.enabled){suspendLive();if(wasLive)host.afterPreview();}else resumeLive();}
     if(jellyfinChanged){generation++;if(!prefs.jellyfin){client=null;showItems([],'Le tue scorciatoie');setStatus('Home locale',false);}else refresh(true);}
-    if(backdropChanged){if(!prefs.backdrops)backdrop.style.backgroundImage='';else setHero(hero);}
+    if(backdropChanged){if(!prefs.backdrops)backdropPainter.clear();else setHero(hero);}
   }
   function applySettings(panel,config){
     const next=cinemaDraft(panel,prefs);config.cinema=normalizeCinemaPrefs(next);applyPreferences(next);
@@ -285,11 +348,11 @@ export function createCinematic(host) {
   document.addEventListener('keydown',function(e){if((e.keyCode===405||e.key==='y')&&!document.body.classList.contains('settings-open')&&document.activeElement.tagName!=='INPUT'){e.preventDefault();setEnabled(!prefs.enabled);}});
   document.addEventListener('visibilitychange',function(){if(document.hidden)suspendLive();else{resumeLive();refresh(false);}});
   window.addEventListener('pagehide',suspendLive);
-  document.addEventListener('webOSRelaunch',function(){refresh(false);});
+  document.addEventListener('webOSRelaunch',function(){if(isLive())revealLive();refresh(false);});
   window.addEventListener('resize',fit);
   document.body.classList.toggle('cinematic',prefs.enabled);paintPreferences();fit();
   showItems(prefs.jellyfin?(cached.resume.length?cached.resume:cached.items):[],cached.resume.length?'Continua a guardare':cached.items.length?'Aggiunti di recente':'Le tue scorciatoie');
   if(cached.at)setStatus('Jellyfin offline',false);
   setTimeout(function(){refresh(true);},300);
-  return {refresh:refresh,mountSettings:mountSettings,applySettings:applySettings,syncConfig:syncConfig,setEnabled:setEnabled,isLive:isLive,suspendLive:suspendLive,refreshInputs:function(){if(isLive())renderLiveSources();},back:function(){if(!isLive())return false;selectTab('home');host.focus.focusElement(nav.querySelector('[data-cinema-tab=live]'));return true;}};
+  return {refresh:refresh,mountSettings:mountSettings,applySettings:applySettings,syncConfig:syncConfig,setEnabled:setEnabled,isLive:isLive,suspendLive:suspendLive,refreshInputs:function(){if(isLive())renderLiveSources();},back:function(){if(discoverPanel.isOpen()){discoverPanel.close();return true;}if(!isLive())return false;selectTab('home');host.focus.focusElement(nav.querySelector('[data-cinema-tab=live]'));return true;}};
 }

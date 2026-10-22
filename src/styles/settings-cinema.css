@@ -123,3 +123,12 @@ body.perf-mode.cinematic:not(.cinema-no-motion) .cinema-primary,body.perf-mode.c
  body.perf-mode.cinematic:not(.cinema-no-motion) .cinema-media.cinema-content-enter{animation:none!important}
  body.perf-mode.cinematic:not(.cinema-no-motion) .cinema-primary,body.perf-mode.cinematic:not(.cinema-no-motion) .cinema-secondary,body.perf-mode.cinematic:not(.cinema-no-motion) .cinema-card{transition:none!important}
 }
+
+/* The embedded native picture already fills the display: fullscreen hides chrome. */
+body.cinematic.cinema-live-clean .top-bar,body.cinematic.cinema-live-clean .launcher,body.cinematic.cinema-live-clean .cinema-live-controls,body.cinematic.cinema-live-clean #channel-strip{visibility:hidden!important;pointer-events:none!important}
+body.cinematic.cinema-live-clean .cinema-scrim{opacity:0!important}
+body.cinema-discover-open .cinema-hero,body.cinema-discover-open .cinema-media{visibility:hidden}
+.cinema-discover{position:absolute;top:150px;left:110px;right:110px;bottom:170px;padding:90px 80px;background:#17191e;z-index:35;border-radius:24px}
+.cinema-discover[hidden]{display:none}
+.cinema-discover h1{font-size:62px;margin:24px 0 32px;color:#f1f2f5}
+.cinema-discover>p:not(.cinema-kicker){font-size:30px;line-height:1.5;max-width:1250px;color:#c3c7d0;margin:0 0 48px}
