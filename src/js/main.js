@@ -31,12 +31,14 @@ import {
   lunaRequest,
   tvToolsStatus,
   tvToolsApply,
-  tvToolsRefresh
+  tvToolsRefresh,
+  powerOffTv
 } from './luna.js';
 import {isHomeApp} from './remote.js';
 import {isTerminalAppId, getAppIdCandidates} from './app-icons.js';
 import {setPreferBundledIcons} from './app-catalog.js';
 import {mountTvToolsSettings} from './tv-tools-settings.js';
+import {createScreensaverPowerOff} from './screensaver-poweroff.js';
 import {setLiteImages} from './backgrounds.js';
 import {createVoiceIndicator} from './voice-indicator.js';
 import {createCustomScreensaver} from './screensaver.js';
@@ -353,6 +355,14 @@ function applyScreensaverSetting() {
   return setScreensaverTimeout(mins).catch(function () { /* best-effort */ });
 }
 
+const screensaverPowerOff = createScreensaverPowerOff({
+  hours: function () { return (getConfig().launcher || {}).screensaverPowerOffHours; },
+  isShowing: function () {
+    return !!(customScreensaver && typeof customScreensaver.isActive === 'function' && customScreensaver.isActive());
+  },
+  powerOff: function () { powerOffTv().catch(function () { /* no root: nothing to do */ }); }
+});
+
 const customScreensaver = createCustomScreensaver({
   rootEl: elements.customScreensaver,
   getConfig: getConfig,
@@ -370,8 +380,10 @@ const customScreensaver = createCustomScreensaver({
   },
   onShow: function () {
     // Ambient music keeps playing under the saver.
+    screensaverPowerOff.shown();
   },
   onHide: function () {
+    screensaverPowerOff.hidden();
     reclaimInput();
   }
 });

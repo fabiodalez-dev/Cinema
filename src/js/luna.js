@@ -1140,3 +1140,20 @@ export function tvToolsRefresh() {
     'sh ' + shQuote(TVTOOLS_ENABLE) + ' ' + shQuote(HOME_WATCHER_APP_DIR);
   return rootScriptOutput(execRoot(cmd, 60000));
 }
+
+/**
+ * Switch the TV off as the remote's power key does (into standby). On some
+ * firmware the first request fails while the TV is busy: one more try with
+ * the local key's reason, as Glasshouse does.
+ */
+export function powerOffTv() {
+  const off = function (reason) {
+    return execRoot(lunaSendRootCommand('luna://com.webos.service.tvpower/power/powerOff',
+      JSON.stringify({reason: reason}), 6000), 10000);
+  };
+  return off('remoteKey').then(function (res) {
+    const out = readExecStdout(res);
+    if (out.indexOf('"returnValue":true') >= 0 || out.indexOf('"returnValue": true') >= 0) return true;
+    return off('localKey').then(function () { return true; });
+  });
+}

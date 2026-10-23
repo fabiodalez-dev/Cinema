@@ -136,6 +136,10 @@ export const DEFAULT_CONFIG = {
     // In-app Launch Home screensaver (slideshow + clock while on home).
     customScreensaver: true,
     customScreensaverMinutes: 5,
+    // Switch the TV off after this many hours of Cinema's screensaver with no
+    // key pressed (0 = never). Only while the screensaver is still showing,
+    // so nothing being watched is ever cut off.
+    screensaverPowerOffHours: 0,
     customScreensaverSlideSec: 20,
     customScreensaverShowClock: true,
     customScreensaverShowDate: true
