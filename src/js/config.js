@@ -105,6 +105,11 @@ export const DEFAULT_CONFIG = {
     clockSize: 'large',
     timezone: '',
     iconSize: 'medium',
+    // Dock look: 'wide' = full-width bar, labels always shown, inputs as
+    // tiles; 'compact' = the centred icon dock.
+    dockStyle: 'wide',
+    // With the wide dock: HDMI inputs as tiles, dimmed with no signal.
+    dockInputs: true,
     iconAlign: 'center',
     iconLayout: 'scroll',
     iconsPerRow: 7,
@@ -131,6 +136,10 @@ export const DEFAULT_CONFIG = {
     // In-app Launch Home screensaver (slideshow + clock while on home).
     customScreensaver: true,
     customScreensaverMinutes: 5,
+    // Switch the TV off after this many hours of Cinema's screensaver with no
+    // key pressed (0 = never). Only while the screensaver is still showing,
+    // so nothing being watched is ever cut off.
+    screensaverPowerOffHours: 0,
     customScreensaverSlideSec: 20,
     customScreensaverShowClock: true,
     customScreensaverShowDate: true

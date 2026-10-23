@@ -1088,3 +1088,114 @@ export function subscribeVolume(onChange) {
     }
   };
 }
+// ---- TV tools (Settings -> TV): scripts/tvtools.py and its enable/disable ----
+const TVTOOLS_APP = HOME_WATCHER_APP_DIR + '/tvtools.py';
+const TVTOOLS_ROOT_COPY = '/var/lib/launch-home-cinema/tvtools/tvtools.py';
+const TVTOOLS_CONF = '/var/lib/launch-home-cinema/tvtools.json';
+const TVTOOLS_ENABLE = HOME_WATCHER_APP_DIR + '/enable-tvtools.sh';
+const TVTOOLS_DISABLE = HOME_WATCHER_APP_DIR + '/disable-tvtools.sh';
+
+/**
+ * What the TV offers and what is applied now: LG's preload list with titles,
+ * LG settings, services, the daemon. Null when the TV has no Python or root.
+ * The installed root copy answers when present, so the code that reads the
+ * state is the one that applies it.
+ */
+export function tvToolsStatus() {
+  const cmd = 'PY=$(command -v python3 || command -v python); [ -n "$PY" ] || { echo no-python; exit 0; }; ' +
+    'F=' + shQuote(TVTOOLS_ROOT_COPY) + '; [ -f "$F" ] || F=' + shQuote(TVTOOLS_APP) + '; "$PY" "$F" status';
+  return execRoot(cmd, 40000).then(function (res) {
+    const out = readExecStdout(res);
+    if (!out || out.indexOf('no-python') === 0) return null;
+    return JSON.parse(out.slice(out.indexOf('{')));
+  });
+}
+
+/**
+ * Store the TV tools configuration and apply it: the daemon is installed (or
+ * restarted) while anything is switched on, and removed, with every change
+ * given back to LG, when nothing is.
+ */
+export async function tvToolsApply(conf) {
+  const any = ['preloadOff', 'settingsOff', 'servicesOff', 'keepInMemory'].some(function (k) {
+    return conf[k] && conf[k].length;
+  }) || Object.keys(conf.remoteKeys || {}).length > 0;
+  await rootScriptOutput(execRoot('mkdir -p /var/lib/launch-home-cinema && chmod 700 /var/lib/launch-home-cinema && echo ok', 8000));
+  await writeFileAsRoot(TVTOOLS_CONF, JSON.stringify(conf));
+  await rootScriptOutput(execRoot('chmod 600 ' + shQuote(TVTOOLS_CONF) + ' && echo ok', 8000));
+  const script = any ? TVTOOLS_ENABLE : TVTOOLS_DISABLE;
+  const out = await rootScriptOutput(execRoot('sh ' + shQuote(script) + ' ' + shQuote(HOME_WATCHER_APP_DIR), 60000));
+  if (out.indexOf(any ? 'enabled' : 'disabled') < 0) throw new Error(out.split('\n')[0] || 'TV tools failed');
+  return any;
+}
+
+/**
+ * After an update of Cinema, the root copy of the TV tools is still the old
+ * one: when the daemon is installed and its copy differs from the app's, it
+ * is installed again (and restarted). Nothing happens when it is not installed.
+ */
+export function tvToolsRefresh() {
+  const cmd = '[ -f ' + shQuote(TVTOOLS_ROOT_COPY) + ' ] || { echo absent; exit 0; }; ' +
+    'cmp -s ' + shQuote(TVTOOLS_APP) + ' ' + shQuote(TVTOOLS_ROOT_COPY) + ' && { echo same; exit 0; }; ' +
+    'sh ' + shQuote(TVTOOLS_ENABLE) + ' ' + shQuote(HOME_WATCHER_APP_DIR);
+  return rootScriptOutput(execRoot(cmd, 60000));
+}
+
+/**
+ * Switch the TV off as the remote's power key does (into standby). On some
+ * firmware the first request fails while the TV is busy: one more try with
+ * the local key's reason, as Glasshouse does.
+ */
+export function powerOffTv() {
+  const off = function (reason) {
+    return execRoot(lunaSendRootCommand('luna://com.webos.service.tvpower/power/powerOff',
+      JSON.stringify({reason: reason}), 6000), 10000);
+  };
+  return off('remoteKey').then(function (res) {
+    const out = readExecStdout(res);
+    if (out.indexOf('"returnValue":true') >= 0 || out.indexOf('"returnValue": true') >= 0) return true;
+    return off('localKey').then(function () { return true; });
+  });
+}
+
+// ---- App updates (Settings -> TV -> Aggiornamenti): scripts/update-app.py ----
+const UPDATE_SCRIPT = HOME_WATCHER_APP_DIR + '/update-app.py';
+
+/** Installed and latest release of Cinema and Bloomee, by app id. */
+export function appUpdatesCheck() {
+  const cmd = 'PY=$(command -v python3 || command -v python); [ -n "$PY" ] || { echo no-python; exit 0; }; "$PY" ' +
+    shQuote(UPDATE_SCRIPT) + ' check';
+  return execRoot(cmd, 45000).then(function (res) {
+    const out = readExecStdout(res);
+    if (!out || out.indexOf('{') < 0) return null;
+    return JSON.parse(out.slice(out.indexOf('{')));
+  });
+}
+
+/** Start installing the latest release of `appId`, detached (it may close Cinema). */
+export function appUpdateInstall(appId) {
+  if (!/^[a-z0-9.]+$/.test(appId)) return Promise.reject(new Error('bad app id'));
+  const cmd = 'PY=$(command -v python3 || command -v python); rm -f /run/cinema-tvtools/update.json; ' +
+    'setsid "$PY" ' + shQuote(UPDATE_SCRIPT) + ' install ' + shQuote(appId) + ' </dev/null >/dev/null 2>&1 & echo started';
+  return rootScriptOutput(execRoot(cmd, 10000));
+}
+
+/** Progress of the last install: {state, app, version, error} or null. */
+export function appUpdateProgress() {
+  return execRoot('cat /run/cinema-tvtools/update.json 2>/dev/null || echo null', 8000).then(function (res) {
+    try { return JSON.parse(readExecStdout(res)); } catch (err) { return null; }
+  });
+}
+
+/** Switch one LG data agreement flag on or off (see tvtools.py set_consent). */
+export function tvToolsConsent(key, on) {
+  if (!/^[A-Za-z0-9]+$/.test(key)) return Promise.reject(new Error('bad key'));
+  const cmd = 'PY=$(command -v python3 || command -v python); F=' + shQuote(TVTOOLS_ROOT_COPY) +
+    '; [ -f "$F" ] || F=' + shQuote(TVTOOLS_APP) + '; "$PY" "$F" consent ' + key + ' ' + (on ? 'on' : 'off');
+  return execRoot(cmd, 30000).then(function (res) {
+    const out = readExecStdout(res);
+    const r = JSON.parse(out.slice(out.indexOf('{')));
+    if (!r.ok) throw new Error(r.error || 'not applied');
+    return r;
+  });
+}

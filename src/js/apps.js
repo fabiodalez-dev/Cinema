@@ -154,6 +154,50 @@ export function createAppGrid(container, getConfig, options) {
       }).join('');
     }).join('') + '</g></svg>';
 
+  const INPUT_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18v10H3z M9 20h6 M12 16v4 M7 10h4"/></svg>';
+
+  /**
+   * The inputs shown in the wide dock: HDMI always (dimmed with no signal),
+   * other inputs (AV, Component) only while something is connected. Live TV
+   * has its own tab.
+   */
+  function dockInputs() {
+    const list = typeof options.getInputs === 'function' ? options.getInputs() || [] : [];
+    const labels = (getConfig().launcher || {}).inputLabels || {};
+    return list.filter(function (d) {
+      return d && d.id && !/^(TV|LIVE_TV|TUNER)$/.test(d.id) && (/^HDMI_/.test(d.id) || d.connected);
+    }).map(function (d) {
+      return Object.assign({}, d, {label: labels[d.id] || d.label || d.id.replace(/_/g, ' ')});
+    });
+  }
+
+  function makeInputTile(device, index) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'app-tile input-tile focusable' + (device.connected === false ? ' input-off' : '');
+    button.dataset.focusIndex = String(index);
+    button.dataset.inputId = device.id;
+    button.setAttribute('aria-label', device.label + (device.connected === false ? ', nessun segnale' : ''));
+    const icon = document.createElement('span');
+    icon.className = 'app-fallback input-icon';
+    icon.innerHTML = INPUT_ICON;
+    button.appendChild(icon);
+    const label = document.createElement('span');
+    label.className = 'app-label';
+    label.textContent = device.label;
+    button.appendChild(label);
+    if (device.connected === false) {
+      const sub = document.createElement('span');
+      sub.className = 'input-sub';
+      sub.textContent = 'Nessun segnale';
+      button.appendChild(sub);
+    }
+    button.addEventListener('click', function () {
+      if (options.onOpenInput) options.onOpenInput(device);
+    });
+    return button;
+  }
+
   function makeAllAppsTile(index) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -202,6 +246,7 @@ export function createAppGrid(container, getConfig, options) {
 
   // What the current dock was built from; see refresh({reuse}).
   let builtSignature = '';
+  let builtInputs = '';
   let lastSignature = '';
 
   // Built without the TV's full app list (root not answering yet, Luna late
@@ -254,13 +299,17 @@ export function createAppGrid(container, getConfig, options) {
     const iconSize = (config.launcher && config.launcher.iconSize) || 'medium';
     const allAppsTile = !(config.launcher && config.launcher.allAppsTile === false);
     const numberKeys = !(config.launcher && config.launcher.numberKeyLaunch === false);
+    const wide = !(config.launcher && config.launcher.dockStyle === 'compact');
+    const inputs = wide && !(config.launcher && config.launcher.dockInputs === false);
     return {
+      wide: wide,
+      inputs: inputs,
       pinned: pinned,
       customApps: customApps,
       iconSize: iconSize,
       allAppsTile: allAppsTile,
       numberKeys: numberKeys,
-      signature: JSON.stringify([pinned, customApps, iconSize, prefersBundledIcons(), allAppsTile, numberKeys])
+      signature: JSON.stringify([pinned, customApps, iconSize, prefersBundledIcons(), allAppsTile, numberKeys, wide, inputs])
     };
   }
 
@@ -278,12 +327,15 @@ export function createAppGrid(container, getConfig, options) {
     }
   }
 
-  function writeSnapshot(signature, pinnedApps, settingsIcon) {
+  function writeSnapshot(signature, pinnedApps, settingsIcon, inputs) {
     try {
       localStorage.setItem(DOCK_SNAPSHOT_KEY, JSON.stringify({
         sig: signature,
         apps: pinnedApps,
-        settingsIcon: settingsIcon
+        settingsIcon: settingsIcon,
+        inputs: (inputs || []).map(function (d) {
+          return {id: d.id, label: d.label, connected: d.connected, appId: d.appId};
+        })
       }));
     } catch (err) { /* storage full: the dock is built from Luna next time */ }
   }
@@ -305,6 +357,11 @@ export function createAppGrid(container, getConfig, options) {
     }).map(function (entry) {
       return makeTile(entry.app, entry.index);
     });
+    if (dock.inputs) {
+      (snapshot.inputs || []).forEach(function (device, i) {
+        tiles.push(makeInputTile(device, dock.pinned.length + 10 + i));
+      });
+    }
     if (dock.allAppsTile) tiles.push(makeAllAppsTile(dock.pinned.length));
     tiles.push(makeSettingsTile(dock.pinned.length + 1, snapshot.settingsIcon || ''));
     swapIn(tiles, dock.numberKeys);
@@ -366,9 +423,11 @@ export function createAppGrid(container, getConfig, options) {
     const allAppsTile = dock.allAppsTile;
     const numberKeys = dock.numberKeys;
     const signature = dock.signature;
-    if (opts && opts.reuse && signature === builtSignature && container.children.length) {
+    const inputsSignature = dock.inputs ? JSON.stringify(dockInputs().map(function (d) { return [d.id, d.label, d.connected]; })) : '';
+    if (opts && opts.reuse && signature === builtSignature && inputsSignature === builtInputs && container.children.length) {
       return;
     }
+    builtInputs = inputsSignature;
     const tiles = [];
     const pinnedApps = [];
 
@@ -404,6 +463,11 @@ export function createAppGrid(container, getConfig, options) {
       const settingsApp = catalog['com.webos.app.settings'] || catalog['com.palm.app.settings'];
       settingsIcon = (settingsApp && settingsApp.icon) || '';
     }
+    if (dock.inputs) {
+      dockInputs().forEach(function (device, i) {
+        tiles.push(makeInputTile(device, pinned.length + 10 + i));
+      });
+    }
     if (allAppsTile) tiles.push(makeAllAppsTile(pinned.length));
     tiles.push(makeSettingsTile(pinned.length + 1, settingsIcon));
 
@@ -413,7 +477,7 @@ export function createAppGrid(container, getConfig, options) {
     builtSignature = Object.keys(catalog).length ? signature : '';
     lastSignature = signature;
     const complete = isCatalogComplete(catalog);
-    if (complete) writeSnapshot(signature, pinnedApps, settingsIcon);
+    if (complete) writeSnapshot(signature, pinnedApps, settingsIcon, dock.inputs ? dockInputs() : []);
     scheduleNameRetry(complete);
   }
 

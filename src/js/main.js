@@ -28,11 +28,21 @@ import {
   setSystemVolume,
   setScreensaverTimeout,
   execRoot,
-  lunaRequest
+  lunaRequest,
+  tvToolsStatus,
+  tvToolsApply,
+  tvToolsRefresh,
+  powerOffTv,
+  appUpdatesCheck,
+  appUpdateInstall,
+  appUpdateProgress,
+  tvToolsConsent
 } from './luna.js';
 import {isHomeApp} from './remote.js';
 import {isTerminalAppId, getAppIdCandidates} from './app-icons.js';
 import {setPreferBundledIcons} from './app-catalog.js';
+import {mountTvToolsSettings} from './tv-tools-settings.js';
+import {createScreensaverPowerOff} from './screensaver-poweroff.js';
 import {setLiteImages} from './backgrounds.js';
 import {createVoiceIndicator} from './voice-indicator.js';
 import {createCustomScreensaver} from './screensaver.js';
@@ -250,12 +260,18 @@ const settings = createSettingsPanel(elements.settingsPanel, getBaseConfig, {
   },
   onRendered: function () {
     if (cinematic) cinematic.mountSettings(elements.settingsPanel);
+    mountTvToolsSettings(elements.settingsPanel, {status: tvToolsStatus, apply: tvToolsApply, consent: tvToolsConsent,
+      updates: {check: appUpdatesCheck, install: appUpdateInstall, progress: appUpdateProgress}});
     // Land focus inside the panel so wheel / arrows navigate options immediately.
     if (focus && typeof focus.focusWithin === 'function') {
       focus.focusWithin('#settings-panel');
     }
   },
-  onCustomSave: function(config){if(cinematic)cinematic.applySettings(elements.settingsPanel,config);},
+  onCustomSave: function(config){
+    if(cinematic)cinematic.applySettings(elements.settingsPanel,config);
+    // Settings -> TV is applied as root; a failure is shown in its own pane.
+    if(elements.settingsPanel.__tvToolsSave)elements.settingsPanel.__tvToolsSave().catch(function(){});
+  },
   onSave: function (savedConfig) {
     setConfig(savedConfig);
     if(cinematic)cinematic.syncConfig(savedConfig);
@@ -344,6 +360,14 @@ function applyScreensaverSetting() {
   return setScreensaverTimeout(mins).catch(function () { /* best-effort */ });
 }
 
+const screensaverPowerOff = createScreensaverPowerOff({
+  hours: function () { return (getConfig().launcher || {}).screensaverPowerOffHours; },
+  isShowing: function () {
+    return !!(customScreensaver && typeof customScreensaver.isActive === 'function' && customScreensaver.isActive());
+  },
+  powerOff: function () { powerOffTv().catch(function () { /* no root: nothing to do */ }); }
+});
+
 const customScreensaver = createCustomScreensaver({
   rootEl: elements.customScreensaver,
   getConfig: getConfig,
@@ -361,13 +385,21 @@ const customScreensaver = createCustomScreensaver({
   },
   onShow: function () {
     // Ambient music keeps playing under the saver.
+    screensaverPowerOff.shown();
   },
   onHide: function () {
+    screensaverPowerOff.hidden();
     reclaimInput();
   }
 });
 
 const apps = createAppGrid(elements.appGrid, getConfig, {
+  // Wide dock: HDMI inputs as tiles.
+  getInputs: function () { return inputs.getDevices(); },
+  onOpenInput: function (device) {
+    beforeInputLaunch();
+    switchInput(device.id, device).catch(function () { showToast('Impossibile aprire ' + device.label); });
+  },
   // A cached dock painted at start-up is replaced by the real one: keep the
   // remote on the same app.
   refocus: function (tile) {
@@ -668,6 +700,7 @@ function applyIconLayout() {
   const grid = elements.appGrid;
   const shell = elements.appGridShell;
   const launcher = elements.launcher;
+  document.body.classList.toggle('dock-wide', (getConfig().launcher || {}).dockStyle !== 'compact');
   if (!grid || !launcher) return;
   const config = getConfig();
   const layout = (config.launcher && config.launcher.iconLayout) || 'scroll';
@@ -1239,6 +1272,20 @@ function keepSettingsFromBeforeUpdate() {
   });
 }
 
+const UPDATE_CHECK_KEY = 'cinema.updateCheck.v1';
+function checkUpdatesDaily() {
+  let last = 0;
+  try { last = Number(localStorage.getItem(UPDATE_CHECK_KEY)) || 0; } catch (err) { /* no storage */ }
+  if (Date.now() - last < 24 * 3600 * 1000) return;
+  try { localStorage.setItem(UPDATE_CHECK_KEY, String(Date.now())); } catch (err) { /* ignore */ }
+  appUpdatesCheck().then(function (result) {
+    const names = Object.keys(result || {}).filter(function (id) {
+      return result[id].installed && result[id].update;
+    }).map(function (id) { return result[id].name + ' ' + result[id].latest; });
+    if (names.length) showToast('Aggiornamento disponibile: ' + names.join(', ') + '. Impostazioni → TV.');
+  }).catch(function () { /* offline or no root */ });
+}
+
 // The last dock, before any Luna call: a cold start would otherwise show the
 // home screen without apps until the TV's app list arrives.
 function paintCachedDock() {
@@ -1438,6 +1485,11 @@ async function init() {
   if (shouldInterceptHome(cfg.launcher) || (cfg.launcher && cfg.launcher.bootOnStart)) {
     syncRootHooks(cfg, {quiet: true}).catch(function () { /* ignore */ });
   }
+  // A Cinema update brings a new TV tools daemon: put it in place.
+  tvToolsRefresh().catch(function () { /* not installed or no root */ });
+  // Once a day: tell the owner when Cinema or Bloomee has a new release.
+  // Nothing is installed without Settings -> TV -> Aggiorna.
+  setTimeout(checkUpdatesDaily, 60000);
   syncVoice(cfg);
 }
 

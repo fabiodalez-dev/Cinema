@@ -2934,6 +2934,21 @@ export function createSettingsPanel(panel, getConfig, options) {
     ));
     launcherSection.appendChild(labeledControl("Avvia dopo inattività", customSsIdle));
 
+    const ssPowerOff = createOptionStepper('', 991, [
+      {value: '0', label: "Mai"},
+      {value: '1', label: "Dopo 1 ora"},
+      {value: '2', label: "Dopo 2 ore"},
+      {value: '3', label: "Dopo 3 ore"},
+      {value: '4', label: "Dopo 4 ore"},
+      {value: '6', label: "Dopo 6 ore"},
+      {value: '8', label: "Dopo 8 ore"}
+    ], String(config.launcher.screensaverPowerOffHours || 0));
+    launcherSection.appendChild(labeledControl("Spegni la TV durante il salvaschermo", ssPowerOff));
+    const ssPowerOffHint = document.createElement('p');
+    ssPowerOffHint.className = 'settings-hint';
+    ssPowerOffHint.textContent = 'La TV si spegne solo se il salvaschermo di Cinema è ancora acceso da quel tempo, senza tasti premuti: un film o un’app in uso non vengono mai interrotti.';
+    launcherSection.appendChild(ssPowerOffHint);
+
     const customSsSlide = createOptionStepper('', 992, [
       {value: '12', label: "12 secondi"},
       {value: '20', label: "20 secondi"},
@@ -3056,6 +3071,19 @@ export function createSettingsPanel(panel, getConfig, options) {
       {value: 'large', label: "Grande"}
     ], config.launcher.iconSize || 'medium');
     launcherSection.appendChild(labeledControl("Dimensione icone", iconSizeSelect));
+
+    const dockStyleSelect = createOptionStepper('', 1005, [
+      {value: 'wide', label: "Estesa, con nomi e ingressi"},
+      {value: 'compact', label: "Compatta, solo icone"}
+    ], config.launcher.dockStyle === 'compact' ? 'compact' : 'wide');
+    launcherSection.appendChild(labeledControl("Barra delle app", dockStyleSelect));
+
+    const dockInputsToggle = document.createElement('input');
+    dockInputsToggle.type = 'checkbox';
+    dockInputsToggle.className = 'focusable';
+    dockInputsToggle.dataset.focusIndex = '1005';
+    dockInputsToggle.checked = config.launcher.dockInputs !== false;
+    launcherSection.appendChild(labeledControl("Ingressi HDMI nella barra estesa", dockInputsToggle));
 
     const iconAlignSelect = createOptionStepper('', 1006, [
       {value: 'left', label: "Sinistra"},
@@ -4120,6 +4148,7 @@ export function createSettingsPanel(panel, getConfig, options) {
       config.launcher.volumeOnAppLaunch = isNaN(appLevel) ? null : appLevel;
       config.launcher.customScreensaver = customSsToggle.checked;
       config.launcher.customScreensaverMinutes = parseInt(customSsIdle.value, 10);
+      config.launcher.screensaverPowerOffHours = parseInt(ssPowerOff.value, 10) || 0;
       if (isNaN(config.launcher.customScreensaverMinutes) ||
           config.launcher.customScreensaverMinutes < 1) {
         config.launcher.customScreensaverMinutes = 5;
@@ -4151,6 +4180,8 @@ export function createSettingsPanel(panel, getConfig, options) {
       config.launcher.clockSize = clockSizeSelect.value || 'large';
       config.launcher.timezone = timezoneSelect.value;
       config.launcher.iconSize = iconSizeSelect.value;
+      config.launcher.dockStyle = dockStyleSelect.value === 'compact' ? 'compact' : 'wide';
+      config.launcher.dockInputs = !!dockInputsToggle.checked;
       config.launcher.iconAlign = iconAlignSelect.value;
       config.launcher.iconLayout = iconLayoutSelect.value;
       config.launcher.iconsPerRow = parseInt(iconsPerRowSelect.value, 10) || 7;

@@ -197,3 +197,47 @@ describe('cached dock at start-up', () => {
     expect(buildGrid(pins).grid.paintCached()).toBe(false);
   });
 });
+
+describe('wide dock inputs', () => {
+  const pins = ['netflix'];
+  const devices = [
+    {id: 'HDMI_1', label: 'HDMI 1', connected: true, appId: 'com.webos.app.hdmi1'},
+    {id: 'HDMI_3', label: 'HDMI 3', connected: false, appId: 'com.webos.app.hdmi3'},
+    {id: 'AV_1', label: 'AV', connected: false},
+    {id: 'COMP_1', label: 'Component', connected: true},
+    {id: 'TV', label: 'Live TV'}
+  ];
+  function grid(launcher, onOpenInput) {
+    mockInstalled(pins);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const config = () => ({launcher: Object.assign({pinnedApps: pins, customApps: [], iconSize: 'medium', allAppsTile: true}, launcher)});
+    return {container, grid: createAppGrid(container, config, {getInputs: () => devices, onOpenInput})};
+  }
+
+  it('shows HDMI always, other inputs only when connected, never Live TV', async () => {
+    const {container, grid: g} = grid({inputLabels: {HDMI_1: 'PlayStation'}});
+    await g.refresh();
+    const tiles = [...container.querySelectorAll('.input-tile')];
+    expect(tiles.map((t) => t.dataset.inputId)).toEqual(['HDMI_1', 'HDMI_3', 'COMP_1']);
+    expect(tiles[0].textContent).toContain('PlayStation');
+    expect(tiles[1].classList.contains('input-off')).toBe(true);
+    expect(tiles[1].textContent).toContain('Nessun segnale');
+  });
+
+  it('opens the input on OK', async () => {
+    const open = vi.fn();
+    const {container, grid: g} = grid({}, open);
+    await g.refresh();
+    container.querySelector('.input-tile[data-input-id="HDMI_1"]').click();
+    expect(open.mock.calls[0][0].id).toBe('HDMI_1');
+  });
+
+  it('has no input tiles in the compact dock or with inputs switched off', async () => {
+    for (const launcher of [{dockStyle: 'compact'}, {dockInputs: false}]) {
+      const {container, grid: g} = grid(launcher);
+      await g.refresh();
+      expect(container.querySelectorAll('.input-tile').length).toBe(0);
+    }
+  });
+});
