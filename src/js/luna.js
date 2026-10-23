@@ -217,13 +217,17 @@ function normalizeListedApps(res) {
  *
  * That build requires `-i` (interactive) or it prints nothing; `-n 1` exits
  * after one reply; `-w` is a hard timeout. Newer TVs accept the same flags.
+ * No `-f`: the reply stays compact JSON. Homebrew Channel's exec keeps at most
+ * about 200 KB of output and fails the call beyond that; pretty-printed,
+ * listApps on a TV with ~120 apps is 210 KB (compact: 119 KB), so the full app
+ * list never arrived and the dock fell back to partial names and icons.
  */
 export function lunaSendRootCommand(uri, payloadJson, waitMs) {
   const wait = waitMs || 4000;
   const payload = payloadJson == null ? '{}' : String(payloadJson);
   // Single-quoted payload; escape any embedded single quotes for the shell.
   const safePayload = payload.replace(/'/g, "'\\''");
-  return "luna-send -i -n 1 -w " + wait + " -f '" + uri + "' '" + safePayload + "'";
+  return "luna-send -i -n 1 -w " + wait + " '" + uri + "' '" + safePayload + "'";
 }
 
 function readExecStdout(res) {

@@ -41,6 +41,8 @@ export async function launchAppCandidates(ids) {
 }
 
 const APP_ID = 'org.webosbrew.lounge.launcher';
+// The last dock built from the TV's full app list, painted at the next start.
+const DOCK_SNAPSHOT_KEY = 'lounge.dock.v1';
 
 export function createAppGrid(container, getConfig, options) {
   let catalog = {};
@@ -244,60 +246,78 @@ export function createAppGrid(container, getConfig, options) {
    *   inputs are unchanged. Returning from an app used to redo every Luna
    *   lookup (app list + one getAppInfo per pinned app) and redraw the dock.
    */
-  async function refresh(opts) {
+  // The dock settings and the signature its tiles were built from.
+  function dockSettings() {
     const config = getConfig();
     const pinned = (config.launcher && config.launcher.pinnedApps) || [];
     const customApps = (config.launcher && config.launcher.customApps) || [];
-    const customById = {};
-    customApps.forEach(function (entry) {
-      if (entry && entry.id) customById[entry.id] = entry;
-    });
-    const scaleBySize = {small: 0.78, medium: 1, large: 1.28};
     const iconSize = (config.launcher && config.launcher.iconSize) || 'medium';
-    container.style.setProperty('--tile-scale', String(scaleBySize[iconSize] || 1));
     const allAppsTile = !(config.launcher && config.launcher.allAppsTile === false);
     const numberKeys = !(config.launcher && config.launcher.numberKeyLaunch === false);
-    const signature = JSON.stringify([pinned, customApps, iconSize, prefersBundledIcons(), allAppsTile, numberKeys]);
-    if (opts && opts.reuse && signature === builtSignature && container.children.length) {
-      return;
+    return {
+      pinned: pinned,
+      customApps: customApps,
+      iconSize: iconSize,
+      allAppsTile: allAppsTile,
+      numberKeys: numberKeys,
+      signature: JSON.stringify([pinned, customApps, iconSize, prefersBundledIcons(), allAppsTile, numberKeys])
+    };
+  }
+
+  function applyTileScale(iconSize) {
+    const scaleBySize = {small: 0.78, medium: 1, large: 1.28};
+    container.style.setProperty('--tile-scale', String(scaleBySize[iconSize] || 1));
+  }
+
+  function readSnapshot() {
+    try {
+      const value = JSON.parse(localStorage.getItem(DOCK_SNAPSHOT_KEY) || 'null');
+      return value && typeof value === 'object' && Array.isArray(value.apps) ? value : null;
+    } catch (err) {
+      return null;
     }
-    const tiles = [];
+  }
 
-    catalog = await loadAppCatalog();
+  function writeSnapshot(signature, pinnedApps, settingsIcon) {
+    try {
+      localStorage.setItem(DOCK_SNAPSHOT_KEY, JSON.stringify({
+        sig: signature,
+        apps: pinnedApps,
+        settingsIcon: settingsIcon
+      }));
+    } catch (err) { /* storage full: the dock is built from Luna next time */ }
+  }
 
-    for (let i = 0; i < pinned.length; i += 1) {
-      const custom = customById[pinned[i]];
-      if (custom) {
-        const launchId = custom.launchId || custom.id;
-        // No bundled icon picked: use the app's own, as the TV reports it.
-        const icon = custom.icon || (await resolvePinnedApp(launchId, catalog)).icon || '';
-        tiles.push(makeTile({
-          id: launchId,
-          launchId: launchId,
-          title: custom.title || launchId,
-          icon: icon,
-          custom: true
-        }, i));
-        continue;
-      }
-      // Pinned but not on this TV (a default pin, or an app since removed):
-      // no tile that can't open. Settings still lists it, marked.
-      if (!isAppInstalled(catalog, pinned[i])) continue;
-      const info = await resolvePinnedApp(pinned[i], catalog);
-      tiles.push(makeTile(info, i));
-    }
+  /**
+   * Paint the last complete dock at once, before any Luna call. A cold start
+   * (webOS closes Cinema when RAM is short) otherwise shows an empty dock
+   * until the app list arrives. refresh() then rebuilds it from the TV.
+   * True when tiles were painted.
+   */
+  function paintCached() {
+    if (container.children.length) return false;
+    const dock = dockSettings();
+    const snapshot = readSnapshot();
+    if (!snapshot || snapshot.sig !== dock.signature) return false;
+    applyTileScale(dock.iconSize);
+    const tiles = snapshot.apps.filter(function (entry) {
+      return entry && entry.app && entry.app.id;
+    }).map(function (entry) {
+      return makeTile(entry.app, entry.index);
+    });
+    if (dock.allAppsTile) tiles.push(makeAllAppsTile(dock.pinned.length));
+    tiles.push(makeSettingsTile(dock.pinned.length + 1, snapshot.settingsIcon || ''));
+    swapIn(tiles, dock.numberKeys);
+    // Not built from the TV's app list: the next refresh must not reuse it.
+    builtSignature = '';
+    return true;
+  }
 
-    let settingsIcon = '';
-    if (!prefersBundledIcons()) {
-      const settingsApp = catalog['com.webos.app.settings'] || catalog['com.palm.app.settings'];
-      settingsIcon = (settingsApp && settingsApp.icon) || '';
-    }
-    if (allAppsTile) tiles.push(makeAllAppsTile(pinned.length));
-    tiles.push(makeSettingsTile(pinned.length + 1, settingsIcon));
-
-    // Number the home row 1-9 in the order it reads (pinned apps, then All
-    // apps, then TV Settings) so the remote's number keys open a tile by
-    // position. The badge is the visible half of the shortcut.
+  // Number the home row 1-9 in the order it reads (pinned apps, then All
+  // apps, then TV Settings) so the remote's number keys open a tile by
+  // position, then put the tiles in the dock.
+  function swapIn(tiles, numberKeys) {
+    // The badge is the visible half of the shortcut.
     if (numberKeys) {
       tiles.slice(0, 9).forEach(function (tile, i) {
         const key = String(i + 1);
@@ -310,6 +330,11 @@ export function createAppGrid(container, getConfig, options) {
       });
     }
 
+    // The remote may already be on a tile (a cached dock painted first):
+    // keep it on the same app after the swap.
+    const focused = container.querySelector('.app-tile.focused');
+    const focusedKey = focused ? (focused.dataset.appId || focused.dataset.focusIndex) : '';
+
     // Swap in the freshly built tiles atomically. Clearing the container up
     // front instead would leave the dock empty (and unselectable) for the whole
     // async catalog fetch above -- and if that fetch stalls after a failed app
@@ -320,15 +345,81 @@ export function createAppGrid(container, getConfig, options) {
     }
     container.innerHTML = '';
     container.appendChild(fragment);
+
+    if (focusedKey && typeof options.refocus === 'function') {
+      const again = tiles.filter(function (tile) {
+        return (tile.dataset.appId || tile.dataset.focusIndex) === focusedKey;
+      })[0];
+      if (again) options.refocus(again);
+    }
+  }
+
+  async function refresh(opts) {
+    const dock = dockSettings();
+    const pinned = dock.pinned;
+    const customApps = dock.customApps;
+    const customById = {};
+    customApps.forEach(function (entry) {
+      if (entry && entry.id) customById[entry.id] = entry;
+    });
+    applyTileScale(dock.iconSize);
+    const allAppsTile = dock.allAppsTile;
+    const numberKeys = dock.numberKeys;
+    const signature = dock.signature;
+    if (opts && opts.reuse && signature === builtSignature && container.children.length) {
+      return;
+    }
+    const tiles = [];
+    const pinnedApps = [];
+
+    catalog = await loadAppCatalog();
+
+    for (let i = 0; i < pinned.length; i += 1) {
+      const custom = customById[pinned[i]];
+      if (custom) {
+        const launchId = custom.launchId || custom.id;
+        // No bundled icon picked: use the app's own, as the TV reports it.
+        const icon = custom.icon || (await resolvePinnedApp(launchId, catalog)).icon || '';
+        const customApp = {
+          id: launchId,
+          launchId: launchId,
+          title: custom.title || launchId,
+          icon: icon,
+          custom: true
+        };
+        pinnedApps.push({app: customApp, index: i});
+        tiles.push(makeTile(customApp, i));
+        continue;
+      }
+      // Pinned but not on this TV (a default pin, or an app since removed):
+      // no tile that can't open. Settings still lists it, marked.
+      if (!isAppInstalled(catalog, pinned[i])) continue;
+      const info = await resolvePinnedApp(pinned[i], catalog);
+      pinnedApps.push({app: info, index: i});
+      tiles.push(makeTile(info, i));
+    }
+
+    let settingsIcon = '';
+    if (!prefersBundledIcons()) {
+      const settingsApp = catalog['com.webos.app.settings'] || catalog['com.palm.app.settings'];
+      settingsIcon = (settingsApp && settingsApp.icon) || '';
+    }
+    if (allAppsTile) tiles.push(makeAllAppsTile(pinned.length));
+    tiles.push(makeSettingsTile(pinned.length + 1, settingsIcon));
+
+    swapIn(tiles, numberKeys);
     // Only reuse a dock built from a real app list: at power-on the Luna
     // services can be late, and that first dock uses fallback titles/icons.
     builtSignature = Object.keys(catalog).length ? signature : '';
     lastSignature = signature;
-    scheduleNameRetry(isCatalogComplete(catalog));
+    const complete = isCatalogComplete(catalog);
+    if (complete) writeSnapshot(signature, pinnedApps, settingsIcon);
+    scheduleNameRetry(complete);
   }
 
   return {
     refresh: refresh,
+    paintCached: paintCached,
     isLoungeApp: function (id) {
       return id === APP_ID;
     },
