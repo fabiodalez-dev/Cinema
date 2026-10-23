@@ -1119,7 +1119,7 @@ export function tvToolsStatus() {
 export async function tvToolsApply(conf) {
   const any = ['preloadOff', 'settingsOff', 'servicesOff', 'keepInMemory'].some(function (k) {
     return conf[k] && conf[k].length;
-  }) || Object.keys(conf.remoteKeys || {}).length > 0;
+  }) || Object.keys(conf.remoteKeys || {}).length > 0 || !!conf.powerOffAt;
   await rootScriptOutput(execRoot('mkdir -p /var/lib/launch-home-cinema && chmod 700 /var/lib/launch-home-cinema && echo ok', 8000));
   await writeFileAsRoot(TVTOOLS_CONF, JSON.stringify(conf));
   await rootScriptOutput(execRoot('chmod 600 ' + shQuote(TVTOOLS_CONF) + ' && echo ok', 8000));

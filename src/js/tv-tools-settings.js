@@ -112,8 +112,19 @@ export function tvToolsDraft(status, controls) {
     if (v === KEEP_LG) delete remoteKeys[k];
     else remoteKeys[k] = v;
   });
+  let powerOffAt = conf.powerOffAt || null;
+  if (controls.powerOffAt) powerOffAt = controls.powerOffAt.value || null;
   return {preloadOff: preloadOff, settingsOff: settingsOff, servicesOff: servicesOff, keepInMemory: keepInMemory,
-    remoteKeys: remoteKeys};
+    remoteKeys: remoteKeys, powerOffAt: powerOffAt};
+}
+
+/** Every half hour of the day, as HH:MM. */
+export function powerOffTimes() {
+  const out = [];
+  for (let m = 0; m < 24 * 60; m += 30) {
+    out.push(String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'));
+  }
+  return out;
 }
 
 function normalized(conf) {
@@ -121,7 +132,8 @@ function normalized(conf) {
   const keys = {};
   Object.keys(conf.remoteKeys || {}).sort().forEach(function (k) { keys[k] = conf.remoteKeys[k]; });
   return {preloadOff: sorted(conf.preloadOff), settingsOff: sorted(conf.settingsOff),
-    servicesOff: sorted(conf.servicesOff), keepInMemory: sorted(conf.keepInMemory), remoteKeys: keys};
+    servicesOff: sorted(conf.servicesOff), keepInMemory: sorted(conf.keepInMemory), remoteKeys: keys,
+    powerOffAt: conf.powerOffAt || null};
 }
 
 /** The apps to list: installed, not essential, and loaded by LG (or switched off here). */
@@ -269,13 +281,31 @@ export function mountTvToolsSettings(panel, api) {
       return;
     }
     const conf = status.conf || {};
-    const controls = {preload: {}, settings: {}, services: {}, memory: null, keys: {}, consent: {}};
+    const controls = {preload: {}, settings: {}, services: {}, memory: null, keys: {}, consent: {}, powerOffAt: null};
 
     if (status.memorySupported) {
       const mem = section('Memoria', 'Con poca memoria webOS chiude le app aperte quando ne apri un’altra. Così Cinema riparte da zero a ogni tasto Home e la musica di Bloomee si ferma.');
       controls.memory = toggle(mem, status.installed && status.installed[BLOOMEE_ID] ? 'Tieni aperte Cinema e Bloomee' : 'Tieni aperta Cinema',
         (conf.keepInMemory || []).length > 0, 'Vale dal prossimo riavvio della TV.');
     }
+
+    const off = section('Spegnimento programmato', 'Ogni giorno all’orario scelto la TV si spegne come con il tasto di accensione, se è accesa. Un minuto prima compare un avviso. Comodo se la presa della TV ha un timer: così la corrente va via con la TV già spenta.');
+    const offRow = node('div', 'settings-row');
+    offRow.appendChild(node('span', '', 'Spegni la TV ogni giorno alle'));
+    const offSelect = document.createElement('select');
+    offSelect.className = 'focusable';
+    offSelect.dataset.focusIndex = String(focusIndex++);
+    offSelect.setAttribute('aria-label', 'Spegni la TV ogni giorno alle');
+    [''].concat(powerOffTimes()).forEach(function (t) {
+      const o = document.createElement('option');
+      o.value = t;
+      o.textContent = t || 'Mai';
+      offSelect.appendChild(o);
+    });
+    offSelect.value = conf.powerOffAt && powerOffTimes().indexOf(conf.powerOffAt) >= 0 ? conf.powerOffAt : '';
+    offRow.appendChild(offSelect);
+    off.appendChild(offRow);
+    controls.powerOffAt = offSelect;
 
     const rows = preloadRows(status);
     if (rows.length) {
@@ -377,7 +407,7 @@ export function mountTvToolsSettings(panel, api) {
       reset.disabled = true;
       state.textContent = 'Ripristino in corso…';
       try {
-        await api.apply({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: [], remoteKeys: {}});
+        await api.apply({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: [], remoteKeys: {}, powerOffAt: null});
         state.textContent = 'Tutto riportato alle impostazioni di LG.';
         refresh();
       } catch (err) {

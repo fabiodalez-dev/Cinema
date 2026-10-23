@@ -140,6 +140,7 @@ def load_conf():
         'servicesOff': [s for s in c.get('servicesOff') or [] if s in SERVICES],
         'keepInMemory': [a for a in c.get('keepInMemory') or [] if isinstance(a, type(u'')) or isinstance(a, str)],
         'remoteKeys': clean_keys(c.get('remoteKeys')),
+        'powerOffAt': clean_time(c.get('powerOffAt')),
     }
 
 
@@ -623,6 +624,79 @@ def set_consent(key, on):
     return {'ok': ok, 'changed': changed}
 
 
+# ---- daily power-off ---------------------------------------------------------
+# Settings -> TV -> Spegnimento programmato: every day at HH:MM the TV is
+# switched off as the remote's power key does, if it is on then. A notice is
+# shown a minute before. Checked against the TV's own clock every 20 s, so a
+# clock set late after a power cut only delays it.
+
+TIME_RE = __import__('re').compile(r'^([01]\d|2[0-3]):([0-5]\d)$')
+ON_STATES = ('Active', 'Screen Off', 'Screen Saver')
+
+
+def clean_time(value):
+    return value if isinstance(value, (str, type(u''))) and TIME_RE.match(value) else None
+
+
+def minutes_of(hhmm):
+    h, m = hhmm.split(':')
+    return int(h) * 60 + int(m)
+
+
+def power_off_due(at, now_struct, done_day, warned_day):
+    """What to do now for a power-off at `at` (HH:MM): 'warn' a minute before,
+    'off' at the minute, None otherwise; once per day each."""
+    if not at:
+        return None
+    day = time.strftime('%Y-%m-%d', now_struct)
+    now = now_struct.tm_hour * 60 + now_struct.tm_min
+    target = minutes_of(at)
+    if now == target and done_day != day:
+        return 'off'
+    if now == (target - 1) % 1440 and warned_day != day and done_day != day:
+        return 'warn'
+    return None
+
+
+def tv_power_state():
+    return luna('luna://com.webos.service.tvpower/power/getPowerState', {}).get('state')
+
+
+def toast(message):
+    try:
+        subprocess.call(['luna-send', '-i', '-n', '1', '-w', '3000', '-a', 'org.webosbrew.lounge.launcher',
+                         'luna://com.webos.notification/createToast',
+                         json.dumps({'sourceId': 'org.webosbrew.lounge.launcher', 'message': message})],
+                        stdin=open(os.devnull), stdout=open(os.devnull, 'w'), stderr=open(os.devnull, 'w'))
+    except Exception:
+        pass
+
+
+def power_off_loop():
+    done = {'day': None, 'warned': None}
+    while True:
+        try:
+            at = load_conf()['powerOffAt']
+            now = time.localtime()
+            action = power_off_due(at, now, done['day'], done['warned'])
+            day = time.strftime('%Y-%m-%d', now)
+            if action and tv_power_state() in ON_STATES:
+                if action == 'warn':
+                    toast('La TV si spegne tra un minuto (spegnimento programmato alle %s).' % at)
+                    done['warned'] = day
+                else:
+                    log('scheduled power-off at %s' % at)
+                    r = luna('luna://com.webos.service.tvpower/power/powerOff', {'reason': 'remoteKey'}, wait=6000)
+                    if not r.get('returnValue'):
+                        luna('luna://com.webos.service.tvpower/power/powerOff', {'reason': 'localKey'}, wait=6000)
+                    done['day'] = day
+            elif action == 'off':
+                done['day'] = day
+        except Exception as e:
+            log('power-off check: %s' % e)
+        time.sleep(20)
+
+
 # ---- entry points -----------------------------------------------------------
 
 def apply_all(boot=False):
@@ -744,6 +818,7 @@ def daemon():
         threads.append(threading.Thread(target=subscribe, args=('luna://com.webos.settingsservice/getSystemSettings',
                                                                 {'category': cat, 'keys': keys, 'subscribe': True},
                                                                 on_settings)))
+    threads.append(threading.Thread(target=power_off_loop))
     for t in threads:
         t.daemon = True
         t.start()
