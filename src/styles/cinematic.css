@@ -157,3 +157,22 @@ body.cinematic .cinema-source.selected{background:#e5e5e9;color:#17171d;border-c
 body.cinematic.cinema-live #input-row{display:none}
 body.cinematic.cinema-live #channel-strip:not([hidden]){bottom:390px;max-height:360px}
 body.cinematic.settings-open .cinema-live-controls,body.cinematic.custom-screensaver-active .cinema-live-controls{visibility:hidden;pointer-events:none}
+
+/* Wide dock (Settings -> App -> Barra delle app: Estesa): a full-width bar of
+   equal tiles with the name always shown and the HDMI inputs as tiles,
+   in the manner of Minimal Home's launch bar. */
+body.cinematic.dock-wide #app-grid-shell{width:auto!important;max-width:none!important;margin:0 64px;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
+body.cinematic.dock-wide #app-grid{max-width:none;max-height:none;padding:8px 2px 26px;justify-content:flex-start;gap:14px}
+body.cinematic.dock-wide #app-grid>.app-tile+*{margin-left:0}
+body.cinematic.dock-wide #app-grid .app-tile{flex:1 1 0;min-width:138px;max-width:220px;width:auto;height:104px;padding:12px 10px 10px;border-radius:16px;background:rgba(40,40,46,.92);gap:9px;justify-content:center}
+body.cinematic.dock-wide #app-grid .app-icon,body.cinematic.dock-wide #app-grid .app-fallback{width:46px;height:46px;border-radius:12px;font-size:18px}
+body.cinematic.dock-wide #app-grid .app-label{position:static;transform:none;opacity:1;max-width:100%;padding:0;margin:0;background:none;color:#f7f6f4;font-size:17px;font-weight:500;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+body.cinematic.dock-wide #app-grid .app-tile.focused{transform:translateY(-3px) scale(1.04);box-shadow:0 0 0 3px rgba(var(--focus-ring-rgb),1);background:rgba(58,58,66,.96)}
+body.cinematic.dock-wide #app-grid .app-tile.focused .app-label{opacity:1}
+body.cinematic.dock-wide #app-grid .input-icon{display:flex;align-items:center;justify-content:center;background:transparent;color:#f7f6f4}
+body.cinematic.dock-wide #app-grid .input-icon svg{width:34px;height:34px}
+body.cinematic.dock-wide #app-grid .input-sub{font-size:12px;line-height:1;color:rgba(247,246,244,.62);margin-top:-4px}
+body.cinematic.dock-wide #app-grid .input-tile.input-off{opacity:.5}
+body.cinematic.dock-wide #app-grid .input-tile.input-off.focused{opacity:.85}
+body.cinematic.dock-wide #app-grid .app-key{top:6px;right:6px}
+body:not(.dock-wide) #app-grid .input-tile{display:none}

@@ -3057,6 +3057,19 @@ export function createSettingsPanel(panel, getConfig, options) {
     ], config.launcher.iconSize || 'medium');
     launcherSection.appendChild(labeledControl("Dimensione icone", iconSizeSelect));
 
+    const dockStyleSelect = createOptionStepper('', 1005, [
+      {value: 'wide', label: "Estesa, con nomi e ingressi"},
+      {value: 'compact', label: "Compatta, solo icone"}
+    ], config.launcher.dockStyle === 'compact' ? 'compact' : 'wide');
+    launcherSection.appendChild(labeledControl("Barra delle app", dockStyleSelect));
+
+    const dockInputsToggle = document.createElement('input');
+    dockInputsToggle.type = 'checkbox';
+    dockInputsToggle.className = 'focusable';
+    dockInputsToggle.dataset.focusIndex = '1005';
+    dockInputsToggle.checked = config.launcher.dockInputs !== false;
+    launcherSection.appendChild(labeledControl("Ingressi HDMI nella barra estesa", dockInputsToggle));
+
     const iconAlignSelect = createOptionStepper('', 1006, [
       {value: 'left', label: "Sinistra"},
       {value: 'center', label: "Centro"},
@@ -4151,6 +4164,8 @@ export function createSettingsPanel(panel, getConfig, options) {
       config.launcher.clockSize = clockSizeSelect.value || 'large';
       config.launcher.timezone = timezoneSelect.value;
       config.launcher.iconSize = iconSizeSelect.value;
+      config.launcher.dockStyle = dockStyleSelect.value === 'compact' ? 'compact' : 'wide';
+      config.launcher.dockInputs = !!dockInputsToggle.checked;
       config.launcher.iconAlign = iconAlignSelect.value;
       config.launcher.iconLayout = iconLayoutSelect.value;
       config.launcher.iconsPerRow = parseInt(iconsPerRowSelect.value, 10) || 7;

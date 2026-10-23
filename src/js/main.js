@@ -377,6 +377,12 @@ const customScreensaver = createCustomScreensaver({
 });
 
 const apps = createAppGrid(elements.appGrid, getConfig, {
+  // Wide dock: HDMI inputs as tiles.
+  getInputs: function () { return inputs.getDevices(); },
+  onOpenInput: function (device) {
+    beforeInputLaunch();
+    switchInput(device.id, device).catch(function () { showToast('Impossibile aprire ' + device.label); });
+  },
   // A cached dock painted at start-up is replaced by the real one: keep the
   // remote on the same app.
   refocus: function (tile) {
@@ -677,6 +683,7 @@ function applyIconLayout() {
   const grid = elements.appGrid;
   const shell = elements.appGridShell;
   const launcher = elements.launcher;
+  document.body.classList.toggle('dock-wide', (getConfig().launcher || {}).dockStyle !== 'compact');
   if (!grid || !launcher) return;
   const config = getConfig();
   const layout = (config.launcher && config.launcher.iconLayout) || 'scroll';

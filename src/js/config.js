@@ -105,6 +105,11 @@ export const DEFAULT_CONFIG = {
     clockSize: 'large',
     timezone: '',
     iconSize: 'medium',
+    // Dock look: 'wide' = full-width bar, labels always shown, inputs as
+    // tiles; 'compact' = the centred icon dock.
+    dockStyle: 'wide',
+    // With the wide dock: HDMI inputs as tiles, dimmed with no signal.
+    dockInputs: true,
     iconAlign: 'center',
     iconLayout: 'scroll',
     iconsPerRow: 7,
