@@ -15,7 +15,6 @@ const PRIVATE_CONNECTION = '/var/lib/launch-home-cinema/jellyfin.json';
 function read(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch (_) { return fallback; } }
 function write(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (_) { return false; } }
 function el(tag, cls, text) { const n = document.createElement(tag); n.className = cls || ''; if (text) n.textContent = text; return n; }
-function timeout(p, ms) { return Promise.race([p, new Promise(function (_, reject) { setTimeout(function () { reject(new Error('Timeout')); }, ms); })]); }
 
 export function createCinematic(host) {
   // Real TV icons are a small bundled fallback; runtime scans still find installed updates.
@@ -295,7 +294,7 @@ export function createCinematic(host) {
   }
   async function loadConnection() {
     if (!window.PalmSystem && /^(127\.0\.0\.1|localhost)$/.test(location.hostname)) return request('/preview/connection', '', false);
-    const raw=await timeout(execRoot('cat '+PRIVATE_CONNECTION),5000);
+    const raw=await execRoot('cat '+PRIVATE_CONNECTION,5000);
     const text=raw.stdoutString||(raw.stdoutBytes?atob(raw.stdoutBytes):'');
     const c=JSON.parse(text);if(!validConnection(c))throw new Error('Jellyfin non configurato');return c;
   }
@@ -324,7 +323,7 @@ export function createCinematic(host) {
       checkSeerr:async function(){if(!connection)connection=await loadConnection();return request(connection.server.replace(/\/+$/,'')+'/Litefin/Seerr/Status',connection.token,false);},
       homeStatus:async function(){
         if(!window.PalmSystem)throw new Error('Solo sulla TV');
-        const out=await timeout(execRoot('python -c \'import json; c=json.load(open("/home/root/.config/lginputhook/keybinds.json")); print(json.dumps({"home":c.get("773",{}).get("id")=="org.webosbrew.lounge.launcher"}))\''),5000);
+        const out=await execRoot('python -c \'import json; c=json.load(open("/home/root/.config/lginputhook/keybinds.json")); print(json.dumps({"home":c.get("773",{}).get("id")=="org.webosbrew.lounge.launcher"}))\'',5000);
         return JSON.parse(out.stdoutString||(out.stdoutBytes?atob(out.stdoutBytes):''));
       },
       openInputHook:function(){suspendLive();host.beforeLaunch();host.openApp('org.webosbrew.inputhook').catch(function(){host.showToast('LG Input Hook non disponibile.');});}
