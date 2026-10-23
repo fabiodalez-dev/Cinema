@@ -41,7 +41,7 @@ class Conf(unittest.TestCase):
             self.assertEqual(c['preloadOff'], ['amazon'])
             self.assertEqual(c['keepInMemory'], ['org.bloomee.webos'])
             os.remove(tv.CONF)
-            self.assertEqual(tv.load_conf(), {'preloadOff': [], 'settingsOff': [], 'servicesOff': [], 'keepInMemory': [], 'remoteKeys': {}})
+            self.assertEqual(tv.load_conf(), {'preloadOff': [], 'settingsOff': [], 'servicesOff': [], 'keepInMemory': [], 'remoteKeys': {}, 'powerOffAt': None})
         finally:
             tv.CONF = old
 
@@ -93,6 +93,25 @@ class Consent(unittest.TestCase):
         self.assertFalse(tv.consent_settable('generalTermsAllowed', self.groups))
         self.assertFalse(tv.consent_settable('chpAllowed', dict(self.groups, chpAllowed=['S_SVC'])))
         self.assertTrue(tv.consent_settable('customAdAllowed', self.groups))
+
+
+class PowerOffAt(unittest.TestCase):
+    def at(self, hhmm):
+        import time as t
+        return t.strptime('2026-10-24 ' + hhmm, '%Y-%m-%d %H:%M')
+
+    def test_warns_a_minute_before_then_switches_off_once_a_day(self):
+        self.assertEqual(tv.power_off_due('02:00', self.at('01:59'), None, None), 'warn')
+        self.assertEqual(tv.power_off_due('02:00', self.at('01:59'), None, '2026-10-24'), None)
+        self.assertEqual(tv.power_off_due('02:00', self.at('02:00'), None, '2026-10-24'), 'off')
+        self.assertEqual(tv.power_off_due('02:00', self.at('02:00'), '2026-10-24', '2026-10-24'), None)
+        self.assertEqual(tv.power_off_due('00:00', self.at('23:59'), None, None), 'warn')
+        self.assertEqual(tv.power_off_due(None, self.at('02:00'), None, None), None)
+
+    def test_only_a_valid_time_is_kept(self):
+        self.assertEqual(tv.clean_time('02:00'), '02:00')
+        for bad in ('2:00', '24:00', '02:60', '', None, 5, '02:00; reboot'):
+            self.assertIsNone(tv.clean_time(bad))
 
 
 class RunDir(unittest.TestCase):

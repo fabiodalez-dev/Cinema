@@ -76,7 +76,7 @@ describe('TV tools settings', () => {
   it('remote keys: offers only the keys this TV has, Cinema, Bloomee and inputs first, and stores the choice', async () => {
     const apply = vi.fn(async () => true);
     const panel = await mounted(status(), apply);
-    const selects = [...panel.querySelectorAll('select')];
+    const selects = [...panel.querySelectorAll('select')].filter((s) => /^Tasto/.test(s.getAttribute('aria-label')));
     expect(selects.map((s) => s.getAttribute('aria-label'))).toEqual(['Tasto blu', 'Tasto Netflix']);
     const options = [...selects[0].options].map((o) => o.textContent);
     expect(options.slice(0, 5)).toEqual(['Come LG', 'Nessuna azione', 'Cinema', 'Bloomee', 'HDMI 1']);
@@ -104,6 +104,19 @@ describe('TV tools settings', () => {
     expect(apply).not.toHaveBeenCalled();
   });
 
+  it('scheduled power-off: Mai by default, a half-hour time once chosen', async () => {
+    const apply = vi.fn(async () => true);
+    const panel = await mounted(status(), apply);
+    const select = panel.querySelector('select[aria-label="Spegni la TV ogni giorno alle"]');
+    expect(select.value).toBe('');
+    expect(select.options[0].textContent).toBe('Mai');
+    expect([...select.options].map((o) => o.value)).toContain('02:00');
+    expect(select.options.length).toBe(49);
+    select.value = '02:00';
+    await panel.__tvToolsSave();
+    expect(apply.mock.calls[0][0].powerOffAt).toBe('02:00');
+  });
+
   it('Salva applies nothing when nothing changed', async () => {
     const apply = vi.fn(async () => true);
     const panel = await mounted(status(), apply);
@@ -116,7 +129,7 @@ describe('TV tools settings', () => {
     const panel = await mounted(status(), apply);
     [...panel.querySelectorAll('button')].find((b) => /Ripristina/.test(b.textContent)).click();
     await new Promise((r) => setTimeout(r, 0));
-    expect(apply.mock.calls[0][0]).toEqual({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: [], remoteKeys: {}});
+    expect(apply.mock.calls[0][0]).toEqual({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: [], remoteKeys: {}, powerOffAt: null});
   });
 
   it('says so on a TV without root or Python', async () => {
@@ -126,7 +139,7 @@ describe('TV tools settings', () => {
 
   it('draft keeps the stored choice for rows not shown', () => {
     expect(tvToolsDraft(status(), {preload: {}, settings: {}, services: {}, memory: null}))
-      .toEqual({preloadOff: ['vudu', 'amazon'], settingsOff: ['adCookie'], servicesOff: ['contentminer'], keepInMemory: ['org.webosbrew.lounge.launcher'], remoteKeys: {}});
+      .toEqual({preloadOff: ['vudu', 'amazon'], settingsOff: ['adCookie'], servicesOff: ['contentminer'], keepInMemory: ['org.webosbrew.lounge.launcher'], remoteKeys: {}, powerOffAt: null});
   });
 });
 
