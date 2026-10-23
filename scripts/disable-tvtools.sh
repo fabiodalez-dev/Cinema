@@ -14,5 +14,9 @@ if [ -n "$PY" ] && [ -f "$D/tvtools.py" ]; then
   "$PY" "$D/tvtools.py" apply
   "$PY" "$D/tvtools.py" restore-keys
 fi
+# The boot activity of failsafe-check.sh (see enable-tvtools.sh).
+luna-send -i -n 1 -w 5000 luna://com.webos.service.activitymanager/cancel \
+  '{"activityName":"org.webosbrew.lounge.launcher.failsafe-check"}' </dev/null >/dev/null 2>&1
+rm -f /var/lib/launch-home-cinema/failsafe-rebooted
 rm -rf "$D"
 echo "disabled"
