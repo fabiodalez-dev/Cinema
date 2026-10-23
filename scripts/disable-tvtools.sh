@@ -12,6 +12,7 @@ rm -f /run/cinema-tvtools/tvtools.pid "$HOOK" "$MEMHOOK"
 if [ -n "$PY" ] && [ -f "$D/tvtools.py" ]; then
   printf '{}' > /var/lib/launch-home-cinema/tvtools.json
   "$PY" "$D/tvtools.py" apply
+  "$PY" "$D/tvtools.py" restore-keys
 fi
 rm -rf "$D"
 echo "disabled"

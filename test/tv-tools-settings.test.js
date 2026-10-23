@@ -13,6 +13,8 @@ function status(extra) {
     ],
     settings: {adCookie: 'off', livePlus: 'off'},
     services: {contentminer: 'inactive', remotelogger: 'active'},
+    remoteKeys: ['blue', 'netflix', 'unknown'],
+    apps: {'org.bloomee.webos': 'Bloomee', 'com.webos.app.hdmi1': 'HDMI 1', 'netflix': 'Netflix', 'com.webos.app.settings': 'Impostazioni', 'kodi': 'Kodi'},
     installed: {'org.bloomee.webos': true},
     memorySupported: true,
     daemon: 123
@@ -66,6 +68,21 @@ describe('TV tools settings', () => {
     expect(apply.mock.calls[0][0].keepInMemory).toEqual(['org.webosbrew.lounge.launcher', 'org.bloomee.webos']);
   });
 
+  it('remote keys: offers only the keys this TV has, Cinema, Bloomee and inputs first, and stores the choice', async () => {
+    const apply = vi.fn(async () => true);
+    const panel = await mounted(status(), apply);
+    const selects = [...panel.querySelectorAll('select')];
+    expect(selects.map((s) => s.getAttribute('aria-label'))).toEqual(['Tasto blu', 'Tasto Netflix']);
+    const options = [...selects[0].options].map((o) => o.textContent);
+    expect(options.slice(0, 5)).toEqual(['Come LG', 'Nessuna azione', 'Cinema', 'Bloomee', 'HDMI 1']);
+    expect(options).toContain('Kodi');
+    expect(options).not.toContain('Impostazioni');
+    selects[0].value = 'com.webos.app.hdmi1';
+    selects[1].value = '';
+    await panel.__tvToolsSave();
+    expect(apply.mock.calls[0][0].remoteKeys).toEqual({blue: 'com.webos.app.hdmi1', netflix: ''});
+  });
+
   it('Salva applies nothing when nothing changed', async () => {
     const apply = vi.fn(async () => true);
     const panel = await mounted(status(), apply);
@@ -78,7 +95,7 @@ describe('TV tools settings', () => {
     const panel = await mounted(status(), apply);
     [...panel.querySelectorAll('button')].find((b) => /Ripristina/.test(b.textContent)).click();
     await new Promise((r) => setTimeout(r, 0));
-    expect(apply.mock.calls[0][0]).toEqual({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: []});
+    expect(apply.mock.calls[0][0]).toEqual({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: [], remoteKeys: {}});
   });
 
   it('says so on a TV without root or Python', async () => {
@@ -88,6 +105,6 @@ describe('TV tools settings', () => {
 
   it('draft keeps the stored choice for rows not shown', () => {
     expect(tvToolsDraft(status(), {preload: {}, settings: {}, services: {}, memory: null}))
-      .toEqual({preloadOff: ['vudu', 'amazon'], settingsOff: ['adCookie'], servicesOff: ['contentminer'], keepInMemory: ['org.webosbrew.lounge.launcher']});
+      .toEqual({preloadOff: ['vudu', 'amazon'], settingsOff: ['adCookie'], servicesOff: ['contentminer'], keepInMemory: ['org.webosbrew.lounge.launcher'], remoteKeys: {}});
   });
 });

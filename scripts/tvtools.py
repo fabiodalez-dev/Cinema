@@ -139,6 +139,7 @@ def load_conf():
         'settingsOff': [k for k in c.get('settingsOff') or [] if k in SETTINGS],
         'servicesOff': [s for s in c.get('servicesOff') or [] if s in SERVICES],
         'keepInMemory': [a for a in c.get('keepInMemory') or [] if isinstance(a, type(u'')) or isinstance(a, str)],
+        'remoteKeys': clean_keys(c.get('remoteKeys')),
     }
 
 
@@ -364,6 +365,164 @@ def apply_memory(conf, state, boot=False):
         log('memory manager keeps %s' % ','.join(conf['keepInMemory']))
 
 
+# ---- remote keys ---------------------------------------------------------------
+# The compositor (surface-manager) runs every key through the handlers listed
+# in configd's com.webos.surfacemanager.keyFilters, in order; LG's are in
+# /usr/lib/qt5/qml/KeyFilters. A handler returns KeyPolicy.Accepted to keep
+# the key, NextPolicy to pass it on. Our filter goes first and keeps only the
+# keys set here, read from the configd value cinema.remoteKeys, which it
+# follows by subscription: a change applies at once, and configd keeps it
+# across reboots, so it works before anything of Cinema has started. The
+# chain is written as little as possible: each write reloads every filter.
+# Technique from Glasshouse (MIT, github.com/rorygallagher2024/glasshouse),
+# verified there on a CX with webOS 5.6.
+
+CHAIN_KEY = 'com.webos.surfacemanager.keyFilters'
+KEYS_VALUE = 'cinema.remoteKeys'
+LG_FILTERS = '/usr/lib/qt5/qml/KeyFilters'
+FILTER_FILE = os.path.join(ROOT, 'keyfilter.js')
+FILTER_HANDLER = 'handleCinemaKeys'
+# Keys that can be set: name -> the compositor's symbol. Offered only when one
+# of LG's filters names the symbol, i.e. this TV's remotes can send it.
+REMOTE_KEYS = [
+    ('netflix', 'WebOS.Key_webOS_Netflix'), ('amazon', 'WebOS.Key_webOS_Amazon'),
+    ('disneyplus', 'WebOS.Key_webOS_Disneyplus'), ('lgchannels', 'WebOS.Key_webOS_LGChannels'),
+    ('rakutentv', 'WebOS.Key_webOS_RakutenTV'), ('red', 'WebOS.Key_webOS_Red'),
+    ('green', 'WebOS.Key_webOS_Green'), ('yellow', 'WebOS.Key_webOS_Yellow'),
+    ('blue', 'WebOS.Key_webOS_Blue'), ('guide', 'WebOS.Key_webOS_TVGuide'),
+    ('info', 'WebOS.Key_webOS_Info'), ('input', 'WebOS.Key_webOS_InputSource'),
+    ('livetv', 'WebOS.Key_webOS_InputTV'), ('search', 'Qt.Key_Search'), ('help', 'Qt.Key_Help'),
+]
+APP_ID_RE = __import__('re').compile(r'^[A-Za-z0-9._-]{1,128}$')
+
+
+def clean_keys(value):
+    """{name: app id or "" for nothing}, names and ids checked: they end up
+    in a file the compositor runs."""
+    names = dict(REMOTE_KEYS)
+    out = {}
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if k in names and (v == '' or (isinstance(v, (str, type(u''))) and APP_ID_RE.match(v))):
+                out[k] = v
+    return out
+
+
+def available_keys():
+    text = ''
+    try:
+        for name in os.listdir(LG_FILTERS):
+            if name.endswith('.js'):
+                with open(os.path.join(LG_FILTERS, name)) as f:
+                    text += f.read()
+    except OSError:
+        return []
+    return [k for k, sym in REMOTE_KEYS if sym.split('.')[-1] in text]
+
+
+def filter_source():
+    lines = [
+        '/* Written by Cinema (Settings -> TV): the remote keys set there, read from',
+        ' * configd ' + KEYS_VALUE + '. First in ' + CHAIN_KEY + ',',
+        ' * so a key set here never reaches LG\'s filters. */',
+        'var cinemaKeyIds = {};',
+        'function cinemaKeyCodes() {',
+        '    var codes = {};',
+    ]
+    for k, sym in REMOTE_KEYS:
+        lines.append('    try { codes["%s"] = %s; } catch (e) {}' % (k, sym))
+    lines += [
+        '    return codes;',
+        '}',
+        'function cinemaKeysChanged(payload) {',
+        '    try {',
+        '        var r = typeof payload === "string" ? JSON.parse(payload) : payload;',
+        '        var set = ((r && r.configs && r.configs["%s"]) || {}).keys || {};' % KEYS_VALUE,
+        '        var codes = cinemaKeyCodes(), ids = {};',
+        '        for (var name in set) {',
+        '            if (set.hasOwnProperty(name) && codes[name] !== undefined && typeof set[name] === "string") ids[codes[name]] = set[name];',
+        '        }',
+        '        cinemaKeyIds = ids;',
+        '    } catch (e) {',
+        '        console.warn("cinema keyfilter: " + e + "; keys left as they were");',
+        '    }',
+        '}',
+        'function init() {',
+        '    try {',
+        '        lunaCall.subscribe("com.webos.service.config", "/getConfigs",',
+        '            JSON.stringify({ "configNames": ["%s"], "subscribe": true }), cinemaKeysChanged, true);' % KEYS_VALUE,
+        '    } catch (e) {',
+        '        console.warn("cinema keyfilter: " + e + "; no keys set");',
+        '    }',
+        '}',
+        '// First in the chain, it sees every key: an error must pass the key on.',
+        'function %s(key, pressed, autoRepeat) {' % FILTER_HANDLER,
+        '    try {',
+        '        if (!cinemaKeyIds.hasOwnProperty(key)) return KeyPolicy.NextPolicy;',
+        '        var id = cinemaKeyIds[key];',
+        '        if (pressed && !autoRepeat && id) applicationManager.launch(id, "{}");',
+        '        return KeyPolicy.Accepted;',
+        '    } catch (e) {',
+        '        console.warn("cinema keyfilter: " + e + "; key passed on");',
+        '        return KeyPolicy.NextPolicy;',
+        '    }',
+        '}',
+        '',
+    ]
+    return '\n'.join(lines)
+
+
+def key_chain():
+    r = luna('luna://com.webos.service.config/getConfigs', {'configNames': [CHAIN_KEY]})
+    lst = (r.get('configs') or {}).get(CHAIN_KEY)
+    return lst if isinstance(lst, list) else None
+
+
+def write_chain(lst):
+    luna('luna://com.webos.service.config/setConfigs', {'configs': {CHAIN_KEY: lst}})
+
+
+def apply_keys(conf, remove=False):
+    chain = key_chain()
+    if chain is None:
+        return
+    ours = [e for e in chain if isinstance(e, dict) and e.get('file') == FILTER_FILE]
+    rest = [e for e in chain if not (isinstance(e, dict) and e.get('file') == FILTER_FILE)]
+    if remove or (not conf['remoteKeys'] and not ours):
+        if ours:
+            write_chain(rest)
+            log('remote key filter taken out of the chain')
+        luna('luna://com.webos.service.config/setConfigs', {'configs': {KEYS_VALUE: {'keys': {}}}}) if ours else None
+        if remove and os.path.exists(FILTER_FILE):
+            os.remove(FILTER_FILE)
+        return
+    src = filter_source()
+    current = None
+    try:
+        with open(FILTER_FILE) as f:
+            current = f.read()
+    except IOError:
+        pass
+    changed = current != src
+    if changed:
+        tmp = FILTER_FILE + '.tmp'
+        with open(tmp, 'w') as f:
+            f.write(src)
+        os.chmod(tmp, 0o644)
+        os.rename(tmp, FILTER_FILE)
+    luna('luna://com.webos.service.config/setConfigs', {'configs': {KEYS_VALUE: {'keys': conf['remoteKeys']}}})
+    entry = {'file': FILTER_FILE, 'handler': FILTER_HANDLER}
+    if not ours:
+        write_chain([entry] + rest)
+        log('remote key filter first in the chain')
+    elif changed:
+        # configd says nothing when the same list is written again: take the
+        # entry out and back in so the compositor loads the new file.
+        write_chain(rest)
+        write_chain([entry] + rest)
+        log('remote key filter reloaded')
+
+
 # ---- entry points -----------------------------------------------------------
 
 def apply_all(boot=False):
@@ -374,6 +533,7 @@ def apply_all(boot=False):
     restore_settings(conf, state)
     apply_settings(conf, state)
     apply_services(conf, state)
+    apply_keys(conf)
     log('applied')
 
 
@@ -401,6 +561,8 @@ def status():
                      'memoryMb': e.get('requiredMemory'), 'essential': e.get('id') in ESSENTIAL} for e in lst],
         'installed': dict((a, a in titles) for a in conf['keepInMemory'] + ['org.bloomee.webos']),
         'memorySupported': os.path.exists(MEM_SYSTEM),
+        'remoteKeys': available_keys() if key_chain() is not None else [],
+        'apps': titles,
         'settings': setting_values(),
         'services': dict((s, service_active(s)) for s in SERVICES if service_exists(s)),
         'daemon': daemon_running(),
@@ -492,6 +654,8 @@ if __name__ == '__main__':
     cmd = sys.argv[1] if len(sys.argv) > 1 else 'status'
     if cmd == 'apply':
         apply_all()
+    elif cmd == 'restore-keys':
+        apply_keys(load_conf(), remove=True)
     elif cmd == 'memory':
         apply_memory(load_conf(), read_json(STATE, {}), boot=True)
     elif cmd == 'daemon':

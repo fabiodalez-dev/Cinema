@@ -28,6 +28,31 @@ export const TV_SERVICES = [
   {id: 'com.webos.service.camera', label: 'Webcam USB'}
 ];
 
+export const REMOTE_KEY_LABELS = {
+  netflix: 'Tasto Netflix', amazon: 'Tasto Prime Video', disneyplus: 'Tasto Disney+', lgchannels: 'Tasto LG Channels',
+  rakutentv: 'Tasto Rakuten TV', red: 'Tasto rosso', green: 'Tasto verde', yellow: 'Tasto giallo', blue: 'Tasto blu',
+  guide: 'Tasto Guida', info: 'Tasto Info', input: 'Tasto Ingressi', livetv: 'Tasto TV', search: 'Tasto Cerca', help: 'Tasto ?'
+};
+const KEEP_LG = '__lg';
+
+/** What a key can open: Cinema and Bloomee first, then the inputs, then the other apps. */
+export function keyTargets(status) {
+  const apps = status.apps || {};
+  const first = [{value: CINEMA_ID, label: 'Cinema'}];
+  if (apps[BLOOMEE_ID]) first.push({value: BLOOMEE_ID, label: 'Bloomee'});
+  const inputs = [];
+  for (let i = 1; i <= 4; i += 1) {
+    if (apps['com.webos.app.hdmi' + i]) inputs.push({value: 'com.webos.app.hdmi' + i, label: 'HDMI ' + i});
+  }
+  if (apps['com.webos.app.livetv']) inputs.push({value: 'com.webos.app.livetv', label: 'Live TV'});
+  const others = Object.keys(apps).filter(function (id) {
+    return id !== CINEMA_ID && id !== BLOOMEE_ID && !/^com\.webos\.app\.(hdmi\d|livetv)/.test(id) &&
+      !/^com\.(webos|palm|lge)\./.test(id) && !/\.service$/.test(id);
+  }).map(function (id) { return {value: id, label: apps[id]}; })
+    .sort(function (a, b) { return String(a.label).localeCompare(String(b.label)); });
+  return first.concat(inputs, others);
+}
+
 function node(tag, cls, text) {
   const n = document.createElement(tag);
   n.className = cls || '';
@@ -56,13 +81,22 @@ export function tvToolsDraft(status, controls) {
       ? [CINEMA_ID].concat(status.installed && status.installed[BLOOMEE_ID] ? [BLOOMEE_ID] : [])
       : [];
   }
-  return {preloadOff: preloadOff, settingsOff: settingsOff, servicesOff: servicesOff, keepInMemory: keepInMemory};
+  let remoteKeys = Object.assign({}, conf.remoteKeys || {});
+  Object.keys(controls.keys || {}).forEach(function (k) {
+    const v = controls.keys[k].value;
+    if (v === KEEP_LG) delete remoteKeys[k];
+    else remoteKeys[k] = v;
+  });
+  return {preloadOff: preloadOff, settingsOff: settingsOff, servicesOff: servicesOff, keepInMemory: keepInMemory,
+    remoteKeys: remoteKeys};
 }
 
 function normalized(conf) {
   function sorted(list) { return (list || []).slice().sort(); }
+  const keys = {};
+  Object.keys(conf.remoteKeys || {}).sort().forEach(function (k) { keys[k] = conf.remoteKeys[k]; });
   return {preloadOff: sorted(conf.preloadOff), settingsOff: sorted(conf.settingsOff),
-    servicesOff: sorted(conf.servicesOff), keepInMemory: sorted(conf.keepInMemory)};
+    servicesOff: sorted(conf.servicesOff), keepInMemory: sorted(conf.keepInMemory), remoteKeys: keys};
 }
 
 /** The apps to list: installed, not essential, and loaded by LG (or switched off here). */
@@ -127,7 +161,7 @@ export function mountTvToolsSettings(panel, api) {
       return;
     }
     const conf = status.conf || {};
-    const controls = {preload: {}, settings: {}, services: {}, memory: null};
+    const controls = {preload: {}, settings: {}, services: {}, memory: null, keys: {}};
 
     if (status.memorySupported) {
       const mem = section('Memoria', 'Con poca memoria webOS chiude le app aperte quando ne apri un’altra. Così Cinema riparte da zero a ogni tasto Home e la musica di Bloomee si ferma.');
@@ -160,6 +194,32 @@ export function mountTvToolsSettings(panel, api) {
       });
     }
 
+    const keys = (status.remoteKeys || []).filter(function (k) { return REMOTE_KEY_LABELS[k]; });
+    if (keys.length) {
+      const rk = section('Tasti del telecomando', 'Scegli cosa apre ciascun tasto, da qualsiasi app. Vale subito e resta dopo il riavvio. Il tasto giallo in Cinema alterna la vista: se lo assegni qui, quella funzione non c’è più. Home, Indietro, volume e canali restano di LG.');
+      const targets = keyTargets(status);
+      keys.forEach(function (k) {
+        const row = node('div', 'settings-row');
+        row.appendChild(node('span', '', REMOTE_KEY_LABELS[k]));
+        const select = document.createElement('select');
+        select.className = 'focusable';
+        select.dataset.focusIndex = String(focusIndex++);
+        select.setAttribute('aria-label', REMOTE_KEY_LABELS[k]);
+        [{value: KEEP_LG, label: 'Come LG'}, {value: '', label: 'Nessuna azione'}].concat(targets).forEach(function (t) {
+          const o = document.createElement('option');
+          o.value = t.value;
+          o.textContent = t.label;
+          select.appendChild(o);
+        });
+        const current = (conf.remoteKeys || {})[k];
+        select.value = current === undefined ? KEEP_LG : current;
+        if (select.value !== (current === undefined ? KEEP_LG : current)) select.value = KEEP_LG;
+        row.appendChild(select);
+        rk.appendChild(row);
+        controls.keys[k] = select;
+      });
+    }
+
     const actions = node('div', 'cinema-settings-actions');
     const state = node('p', 'settings-hint', status.daemon ? 'Attivo.' : 'Non attivo.');
     // Saved with the panel's own Salva, like every other setting.
@@ -181,7 +241,7 @@ export function mountTvToolsSettings(panel, api) {
       reset.disabled = true;
       state.textContent = 'Ripristino in corso…';
       try {
-        await api.apply({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: []});
+        await api.apply({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: [], remoteKeys: {}});
         state.textContent = 'Tutto riportato alle impostazioni di LG.';
         refresh();
       } catch (err) {

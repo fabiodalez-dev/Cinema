@@ -41,13 +41,30 @@ class Conf(unittest.TestCase):
             self.assertEqual(c['preloadOff'], ['amazon'])
             self.assertEqual(c['keepInMemory'], ['org.bloomee.webos'])
             os.remove(tv.CONF)
-            self.assertEqual(tv.load_conf(), {'preloadOff': [], 'settingsOff': [], 'servicesOff': [], 'keepInMemory': []})
+            self.assertEqual(tv.load_conf(), {'preloadOff': [], 'settingsOff': [], 'servicesOff': [], 'keepInMemory': [], 'remoteKeys': {}})
         finally:
             tv.CONF = old
 
     def test_services_that_must_never_stop_are_not_offered(self):
         for s in ('tvdataexchanger', 'alwaysready', 'sdx'):
             self.assertNotIn(s, tv.SERVICES)
+
+
+class Keys(unittest.TestCase):
+    def test_only_known_keys_and_plain_app_ids_reach_the_filter(self):
+        self.assertEqual(tv.clean_keys({'blue': 'com.webos.app.hdmi2', 'red': '', 'netflix': 'x"); evil(); ("',
+                                        'power': 'org.bloomee.webos', 'green': 5}),
+                         {'blue': 'com.webos.app.hdmi2', 'red': ''})
+        self.assertEqual(tv.clean_keys(None), {})
+
+    def test_filter_passes_every_key_it_does_not_hold(self):
+        src = tv.filter_source()
+        self.assertIn('function handleCinemaKeys(key, pressed, autoRepeat)', src)
+        self.assertIn('return KeyPolicy.NextPolicy;', src)
+        self.assertIn('"cinema.remoteKeys"', src)
+        for name, sym in tv.REMOTE_KEYS:
+            self.assertIn('codes["%s"] = %s;' % (name, sym), src)
+        self.assertEqual(src.count('{'), src.count('}'))
 
 
 class RunDir(unittest.TestCase):
