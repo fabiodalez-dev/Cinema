@@ -114,7 +114,11 @@ async function build() {
     // Settings -> AI Voice -> Voice assistant on/off, and its run loop.
     'voice-run.sh',
     'enable-voice.sh',
-    'disable-voice.sh'
+    'disable-voice.sh',
+    // Settings -> TV: root daemon keeping LG's extras off.
+    'tvtools.py',
+    'enable-tvtools.sh',
+    'disable-tvtools.sh'
   ].forEach(function (name) {
     const src = path.join(root, 'scripts', name);
     if (fs.existsSync(src)) {

@@ -1,7 +1,7 @@
 {
   "name": "webos-launch-home",
   "version": "0.1.9",
-  "description": "Launch Home — fullscreen home screen for rooted LG webOS TVs",
+  "description": "Launch Home \u2014 fullscreen home screen for rooted LG webOS TVs",
   "private": true,
   "scripts": {
     "build": "node scripts/build.js",
@@ -11,7 +11,8 @@
     "test": "vitest run",
     "clean": "rm -rf dist",
     "version:set": "node scripts/set-version.js",
-    "version": "node scripts/set-version.js && git add version.md appinfo.json voice/overlay/appinfo.json"
+    "version": "node scripts/set-version.js && git add version.md appinfo.json voice/overlay/appinfo.json",
+    "test:py": "python3 -m unittest discover -s test/py -p \"*_test.py\""
   },
   "devDependencies": {
     "@procot/webostv": "^1.2.6",

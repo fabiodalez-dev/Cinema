@@ -108,6 +108,31 @@ bring_up() {
   return 1
 }
 
+# After Cinema is in front, LG's last-input handler can still bring the last
+# input back over it: at boot about 20 s later (Live TV launched with
+# "mode":"last_input" by last_input_handler, seen on webOS 5.6), and after a
+# wake. For $1 seconds, put Cinema back when Live TV or an HDMI/AV input takes
+# the front; any other app means the owner chose it, and the guard stops.
+guard_front() {
+  until=$(( $(cut -d. -f1 /proc/uptime 2>/dev/null || echo 0) + $1 ))
+  while [ "$(cut -d. -f1 /proc/uptime 2>/dev/null || echo 0)" -lt "$until" ]; do
+    sleep 2
+    fg=$(foreground_app)
+    case "$fg" in
+      "$APP_ID"|"") ;;
+      com.webos.app.livetv|com.webos.app.hdmi*|com.webos.app.inputcommon|com.webos.app.externalinput.*)
+        log "input $fg came back over Launch Home, launching it again"
+        luna_once 'luna://com.webos.applicationManager/launch' "{\"id\":\"${APP_ID}\"}" >/dev/null 2>&1 || true
+        ;;
+      *)
+        log "guard stopped: $fg opened"
+        return 0
+        ;;
+    esac
+  done
+  log "guard over"
+}
+
 # Some webOS builds print nothing without -i; older ones may lack -i. Probe
 # once, then exec so luna-send is a direct child of this script and the stop
 # trap above can end it.
@@ -136,7 +161,7 @@ watch_wakes() {
         log "power state: ${last:-?} -> $state"
         case "$last" in
           Suspend|"Active Standby")
-            [ "$state" = "Active" ] && bring_up 15
+            [ "$state" = "Active" ] && bring_up 15 && guard_front 40
             ;;
         esac
         last=$state
@@ -166,7 +191,7 @@ if [ "$1" != "--wake-only" ]; then
     i=$((i + 1))
     sleep 2
   done
-  bring_up 30
+  bring_up 30 && guard_front 120
 fi
 
 watch_wakes
