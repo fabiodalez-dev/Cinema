@@ -1088,3 +1088,55 @@ export function subscribeVolume(onChange) {
     }
   };
 }
+// ---- TV tools (Settings -> TV): scripts/tvtools.py and its enable/disable ----
+const TVTOOLS_APP = HOME_WATCHER_APP_DIR + '/tvtools.py';
+const TVTOOLS_ROOT_COPY = '/var/lib/launch-home-cinema/tvtools/tvtools.py';
+const TVTOOLS_CONF = '/var/lib/launch-home-cinema/tvtools.json';
+const TVTOOLS_ENABLE = HOME_WATCHER_APP_DIR + '/enable-tvtools.sh';
+const TVTOOLS_DISABLE = HOME_WATCHER_APP_DIR + '/disable-tvtools.sh';
+
+/**
+ * What the TV offers and what is applied now: LG's preload list with titles,
+ * LG settings, services, the daemon. Null when the TV has no Python or root.
+ * The installed root copy answers when present, so the code that reads the
+ * state is the one that applies it.
+ */
+export function tvToolsStatus() {
+  const cmd = 'PY=$(command -v python3 || command -v python); [ -n "$PY" ] || { echo no-python; exit 0; }; ' +
+    'F=' + shQuote(TVTOOLS_ROOT_COPY) + '; [ -f "$F" ] || F=' + shQuote(TVTOOLS_APP) + '; "$PY" "$F" status';
+  return execRoot(cmd, 40000).then(function (res) {
+    const out = readExecStdout(res);
+    if (!out || out.indexOf('no-python') === 0) return null;
+    return JSON.parse(out.slice(out.indexOf('{')));
+  });
+}
+
+/**
+ * Store the TV tools configuration and apply it: the daemon is installed (or
+ * restarted) while anything is switched on, and removed, with every change
+ * given back to LG, when nothing is.
+ */
+export async function tvToolsApply(conf) {
+  const any = ['preloadOff', 'settingsOff', 'servicesOff', 'keepInMemory'].some(function (k) {
+    return conf[k] && conf[k].length;
+  });
+  await rootScriptOutput(execRoot('mkdir -p /var/lib/launch-home-cinema && chmod 700 /var/lib/launch-home-cinema && echo ok', 8000));
+  await writeFileAsRoot(TVTOOLS_CONF, JSON.stringify(conf));
+  await rootScriptOutput(execRoot('chmod 600 ' + shQuote(TVTOOLS_CONF) + ' && echo ok', 8000));
+  const script = any ? TVTOOLS_ENABLE : TVTOOLS_DISABLE;
+  const out = await rootScriptOutput(execRoot('sh ' + shQuote(script) + ' ' + shQuote(HOME_WATCHER_APP_DIR), 60000));
+  if (out.indexOf(any ? 'enabled' : 'disabled') < 0) throw new Error(out.split('\n')[0] || 'TV tools failed');
+  return any;
+}
+
+/**
+ * After an update of Cinema, the root copy of the TV tools is still the old
+ * one: when the daemon is installed and its copy differs from the app's, it
+ * is installed again (and restarted). Nothing happens when it is not installed.
+ */
+export function tvToolsRefresh() {
+  const cmd = '[ -f ' + shQuote(TVTOOLS_ROOT_COPY) + ' ] || { echo absent; exit 0; }; ' +
+    'cmp -s ' + shQuote(TVTOOLS_APP) + ' ' + shQuote(TVTOOLS_ROOT_COPY) + ' && { echo same; exit 0; }; ' +
+    'sh ' + shQuote(TVTOOLS_ENABLE) + ' ' + shQuote(HOME_WATCHER_APP_DIR);
+  return rootScriptOutput(execRoot(cmd, 60000));
+}

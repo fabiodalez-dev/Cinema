@@ -28,11 +28,15 @@ import {
   setSystemVolume,
   setScreensaverTimeout,
   execRoot,
-  lunaRequest
+  lunaRequest,
+  tvToolsStatus,
+  tvToolsApply,
+  tvToolsRefresh
 } from './luna.js';
 import {isHomeApp} from './remote.js';
 import {isTerminalAppId, getAppIdCandidates} from './app-icons.js';
 import {setPreferBundledIcons} from './app-catalog.js';
+import {mountTvToolsSettings} from './tv-tools-settings.js';
 import {setLiteImages} from './backgrounds.js';
 import {createVoiceIndicator} from './voice-indicator.js';
 import {createCustomScreensaver} from './screensaver.js';
@@ -250,12 +254,17 @@ const settings = createSettingsPanel(elements.settingsPanel, getBaseConfig, {
   },
   onRendered: function () {
     if (cinematic) cinematic.mountSettings(elements.settingsPanel);
+    mountTvToolsSettings(elements.settingsPanel, {status: tvToolsStatus, apply: tvToolsApply});
     // Land focus inside the panel so wheel / arrows navigate options immediately.
     if (focus && typeof focus.focusWithin === 'function') {
       focus.focusWithin('#settings-panel');
     }
   },
-  onCustomSave: function(config){if(cinematic)cinematic.applySettings(elements.settingsPanel,config);},
+  onCustomSave: function(config){
+    if(cinematic)cinematic.applySettings(elements.settingsPanel,config);
+    // Settings -> TV is applied as root; a failure is shown in its own pane.
+    if(elements.settingsPanel.__tvToolsSave)elements.settingsPanel.__tvToolsSave().catch(function(){});
+  },
   onSave: function (savedConfig) {
     setConfig(savedConfig);
     if(cinematic)cinematic.syncConfig(savedConfig);
@@ -1438,6 +1447,8 @@ async function init() {
   if (shouldInterceptHome(cfg.launcher) || (cfg.launcher && cfg.launcher.bootOnStart)) {
     syncRootHooks(cfg, {quiet: true}).catch(function () { /* ignore */ });
   }
+  // A Cinema update brings a new TV tools daemon: put it in place.
+  tvToolsRefresh().catch(function () { /* not installed or no root */ });
   syncVoice(cfg);
 }
 

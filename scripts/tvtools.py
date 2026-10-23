@@ -268,6 +268,30 @@ def service_active(name):
     return out.decode('utf-8', 'replace').strip()
 
 
+def service_exists(name):
+    """systemctl is-active says "inactive" for units that do not exist too;
+    is-enabled prints nothing for those."""
+    try:
+        out = subprocess.check_output(['systemctl', 'is-enabled', name + '.service'], stderr=open(os.devnull, 'w'))
+    except subprocess.CalledProcessError as e:
+        out = e.output or b''
+    except Exception:
+        return False
+    return bool(out.decode('utf-8', 'replace').strip())
+
+
+def unmask_runtime(unit):
+    """Undo `mask --runtime`. Older systemd (webOS 5) refuses
+    `unmask --runtime`: the runtime mask is a symlink to /dev/null in
+    /run/systemd/system, removed here only when it is exactly that."""
+    if systemctl('unmask', '--runtime', unit) == 0:
+        return
+    link = os.path.join('/run/systemd/system', unit)
+    if os.path.islink(link) and os.readlink(link) == '/dev/null':
+        os.remove(link)
+        systemctl('daemon-reload')
+
+
 def apply_services(conf, state):
     stopped = set(state.get('servicesStopped') or [])
     for s in conf['servicesOff']:
@@ -275,10 +299,10 @@ def apply_services(conf, state):
         stopped.add(s)
     for s in list(stopped):
         if s not in conf['servicesOff']:
-            systemctl('unmask', '--runtime', s + '.service')
+            unmask_runtime(s + '.service')
             systemctl('start', s + '.service')
             stopped.discard(s)
-            log('service %s started again' % s)
+            log('service %s started again: %s' % (s, service_active(s)))
     state['servicesStopped'] = sorted(stopped)
     write_json(STATE, state)
 
@@ -353,15 +377,32 @@ def apply_all(boot=False):
     log('applied')
 
 
+def installed_titles():
+    r = luna('luna://com.webos.applicationManager/listApps', {}, wait=8000)
+    out = {}
+    for a in r.get('apps') or []:
+        if isinstance(a, dict) and a.get('id'):
+            out[a['id']] = a.get('title') or a['id']
+    return out
+
+
 def status():
     conf = load_conf()
+    state = read_json(STATE, {})
+    # LG's own values, so Settings shows what switching an app back on gives.
+    lg = dict((e.get('id'), bool(e.get('isEnabled'))) for e in state.get('preloadLg') or [])
     lst = preload_list() or []
+    titles = installed_titles()
     print(json.dumps({
         'conf': conf,
-        'preload': [{'id': e.get('id'), 'enabled': bool(e.get('isEnabled')), 'memoryMb': e.get('requiredMemory'),
-                     'essential': e.get('id') in ESSENTIAL} for e in lst],
+        'python': True,
+        'preload': [{'id': e.get('id'), 'title': titles.get(e.get('id')), 'installed': e.get('id') in titles,
+                     'enabled': bool(e.get('isEnabled')), 'lgEnabled': lg.get(e.get('id'), bool(e.get('isEnabled'))),
+                     'memoryMb': e.get('requiredMemory'), 'essential': e.get('id') in ESSENTIAL} for e in lst],
+        'installed': dict((a, a in titles) for a in conf['keepInMemory'] + ['org.bloomee.webos']),
+        'memorySupported': os.path.exists(MEM_SYSTEM),
         'settings': setting_values(),
-        'services': dict((s, service_active(s)) for s in SERVICES),
+        'services': dict((s, service_active(s)) for s in SERVICES if service_exists(s)),
         'daemon': daemon_running(),
         'memoryOverride': os.path.exists(MEM_MARK),
     }))
