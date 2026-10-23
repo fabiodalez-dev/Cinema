@@ -43,6 +43,7 @@ function buildGrid(pinnedApps, numberKeyLaunch) {
 beforeEach(() => {
   vi.mocked(launchApp).mockClear();
   document.body.innerHTML = '';
+  localStorage.removeItem('lounge.dock.v1');
 });
 
 describe('home row numbering and badges', () => {
@@ -124,5 +125,75 @@ describe('numberKeyLaunch off', () => {
     expect(container.querySelectorAll('.app-key').length).toBe(0);
     expect(grid.launchByNumber(1)).toBe(false);
     expect(launchApp).not.toHaveBeenCalled();
+  });
+});
+
+describe('cached dock at start-up', () => {
+  const pins = ['netflix', 'youtube.leanback.v4'];
+
+  // The full app list, as read with root.
+  function mockComplete(ids) {
+    mockInstalled(ids);
+    listApps.mockResolvedValue({apps: ids.map((id) => ({id: id, title: id})), complete: true});
+  }
+
+  it('paints the last complete dock before the app list arrives', async () => {
+    mockComplete(pins);
+    await buildGrid(pins).grid.refresh();
+
+    // Next start: the TV is slow to answer.
+    let answer;
+    listApps.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+    const {container, grid} = buildGrid(pins);
+    expect(grid.paintCached()).toBe(true);
+    const tiles = container.querySelectorAll('.app-tile');
+    // netflix, youtube, All apps, TV Settings, numbered as usual
+    expect(tiles.length).toBe(4);
+    expect(tiles[0].dataset.appId).toBe('netflix');
+    expect(tiles[1].dataset.appId).toBe('youtube.leanback.v4');
+    expect(tiles[0].dataset.appKey).toBe('1');
+
+    // The real build replaces it; not reused as if it came from the TV.
+    const pending = grid.refresh({reuse: true});
+    answer({apps: pins.map((id) => ({id: id, title: id})), complete: true});
+    await pending;
+    expect(listApps).toHaveBeenCalled();
+    expect(container.querySelectorAll('.app-tile').length).toBe(4);
+  });
+
+  it('keeps the remote on the same app when the real dock replaces the cached one', async () => {
+    mockComplete(pins);
+    await buildGrid(pins).grid.refresh();
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const refocus = vi.fn();
+    const grid = createAppGrid(container, makeConfig(pins), {refocus: refocus});
+    grid.paintCached();
+    container.querySelectorAll('.app-tile')[1].classList.add('focused');
+    await grid.refresh();
+
+    expect(refocus).toHaveBeenCalledTimes(1);
+    const tile = refocus.mock.calls[0][0];
+    expect(tile.dataset.appId).toBe('youtube.leanback.v4');
+    expect(container.contains(tile)).toBe(true);
+  });
+
+  it('paints nothing when the dock settings changed since', async () => {
+    mockComplete(pins);
+    await buildGrid(pins).grid.refresh();
+
+    const {container, grid} = buildGrid(['netflix']);
+    expect(grid.paintCached()).toBe(false);
+    expect(container.children.length).toBe(0);
+  });
+
+  it('keeps no snapshot of a dock built without the TV app list', async () => {
+    listApps.mockRejectedValue(new Error('Luna late'));
+    getAppInfo.mockRejectedValue(new Error('Luna late'));
+    await buildGrid(pins).grid.refresh();
+
+    expect(localStorage.getItem('lounge.dock.v1')).toBeNull();
+    expect(buildGrid(pins).grid.paintCached()).toBe(false);
   });
 });

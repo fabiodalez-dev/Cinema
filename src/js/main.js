@@ -368,6 +368,13 @@ const customScreensaver = createCustomScreensaver({
 });
 
 const apps = createAppGrid(elements.appGrid, getConfig, {
+  // A cached dock painted at start-up is replaced by the real one: keep the
+  // remote on the same app.
+  refocus: function (tile) {
+    if (focus && document.activeElement && elements.appGrid.contains(document.activeElement)) {
+      focus.focusElement(tile);
+    }
+  },
   onBeforeLaunch: function () {
     if(cinematic)cinematic.suspendLive();
     launchPending = true;
@@ -1232,8 +1239,18 @@ function keepSettingsFromBeforeUpdate() {
   });
 }
 
+// The last dock, before any Luna call: a cold start would otherwise show the
+// home screen without apps until the TV's app list arrives.
+function paintCachedDock() {
+  try {
+    setPreferBundledIcons((getConfig().launcher || {}).bundledIcons !== false);
+    if (apps.paintCached()) applyIconLayout();
+  } catch (err) { /* refreshAll builds it */ }
+}
+
 async function init() {
   keepSettingsFromBeforeUpdate();
+  paintCachedDock();
   await applyUsbOverrides();
   await autoEnableTerminal();
   updateClock();
