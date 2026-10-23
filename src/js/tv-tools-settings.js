@@ -111,9 +111,92 @@ export function preloadRows(status) {
  * Mount the TV pane. api: {status(): Promise<status|null>, apply(conf): Promise,
  * toast(text)}.
  */
+/**
+ * Aggiornamenti: Cinema and Bloomee from their GitHub releases. api:
+ * {check(): Promise<{id: {name, installed, latest, update, error}}|null>,
+ *  install(id): Promise, progress(): Promise<{state, app, version, error}|null>}
+ */
+export function mountUpdates(container, api, nextFocus) {
+  const section = node('section', 'settings-section tv-updates');
+  section.appendChild(node('h3', '', 'Aggiornamenti'));
+  const list = node('div', 'tv-updates-list');
+  section.appendChild(list);
+  section.appendChild(node('p', 'settings-hint', 'Dalle release ufficiali su GitHub. Il pacchetto viene installato solo se la sua impronta SHA-256 corrisponde a quella pubblicata. Aggiornando Cinema, Cinema si chiude e si riapre da sola.'));
+  container.appendChild(section);
+  list.appendChild(node('p', 'settings-hint', 'Controllo delle versioni…'));
+
+  function row(id, info) {
+    const r = node('div', 'settings-row');
+    const text = node('span', '', '');
+    const name = info.name + (info.installed ? ' ' + info.installed : '');
+    let detail = '';
+    if (info.error) detail = ' · controllo non riuscito';
+    else if (!info.installed && info.latest) detail = ' · non installata, ultima ' + info.latest;
+    else if (info.update) detail = ' · disponibile ' + info.latest;
+    else if (info.latest) detail = ' · aggiornata';
+    text.textContent = name + detail;
+    r.appendChild(text);
+    if (info.update && !info.error) {
+      const b = node('button', 'settings-button focusable', info.installed ? 'Aggiorna' : 'Installa');
+      b.type = 'button';
+      b.dataset.focusIndex = String(nextFocus());
+      b.addEventListener('click', function () { start(id, info, b, text); });
+      r.appendChild(b);
+    }
+    return r;
+  }
+
+  async function start(id, info, button, text) {
+    button.disabled = true;
+    text.textContent = info.name + ' · avvio…';
+    try {
+      await api.install(id);
+    } catch (err) {
+      text.textContent = info.name + ' · non riuscito';
+      button.disabled = false;
+      return;
+    }
+    const labels = {checking: 'controllo', downloading: 'scaricamento', installing: 'installazione'};
+    for (let i = 0; i < 120; i += 1) {
+      await new Promise(function (r) { setTimeout(r, 2000); });
+      let p = null;
+      try { p = await api.progress(); } catch (err) { /* Cinema itself may be closing */ }
+      if (!p || p.app !== id) continue;
+      if (p.state === 'installed') {
+        text.textContent = info.name + ' ' + p.version + ' · installata';
+        button.remove();
+        return;
+      }
+      if (p.state === 'failed') {
+        text.textContent = info.name + ' · non riuscito: ' + (p.error || '');
+        button.disabled = false;
+        return;
+      }
+      text.textContent = info.name + ' · ' + (labels[p.state] || p.state) + (p.version ? ' ' + p.version : '') + '…';
+    }
+  }
+
+  api.check().then(function (result) {
+    list.textContent = '';
+    if (!result) {
+      list.appendChild(node('p', 'settings-hint', 'Richiede root (Homebrew Channel) e Python sulla TV.'));
+      return;
+    }
+    Object.keys(result).forEach(function (id) { list.appendChild(row(id, result[id])); });
+    decorateSettings(container.closest('.settings-panel') || container);
+  }).catch(function () {
+    list.textContent = '';
+    list.appendChild(node('p', 'settings-hint', 'GitHub non ha risposto. Riprova più tardi.'));
+  });
+}
+
 export function mountTvToolsSettings(panel, api) {
   const pane = panel.querySelector('.settings-tab-pane[data-tab="tv"]');
   if (!pane || pane.querySelector('.tv-tools-settings')) return;
+  if (api.updates) {
+    let updateFocus = 1180;
+    mountUpdates(pane, api.updates, function () { return updateFocus++; });
+  }
   const root = node('div', 'tv-tools-settings');
   pane.appendChild(root);
   let focusIndex = 1200;

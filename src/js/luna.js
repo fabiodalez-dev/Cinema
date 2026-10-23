@@ -1157,3 +1157,32 @@ export function powerOffTv() {
     return off('localKey').then(function () { return true; });
   });
 }
+
+// ---- App updates (Settings -> TV -> Aggiornamenti): scripts/update-app.py ----
+const UPDATE_SCRIPT = HOME_WATCHER_APP_DIR + '/update-app.py';
+
+/** Installed and latest release of Cinema and Bloomee, by app id. */
+export function appUpdatesCheck() {
+  const cmd = 'PY=$(command -v python3 || command -v python); [ -n "$PY" ] || { echo no-python; exit 0; }; "$PY" ' +
+    shQuote(UPDATE_SCRIPT) + ' check';
+  return execRoot(cmd, 45000).then(function (res) {
+    const out = readExecStdout(res);
+    if (!out || out.indexOf('{') < 0) return null;
+    return JSON.parse(out.slice(out.indexOf('{')));
+  });
+}
+
+/** Start installing the latest release of `appId`, detached (it may close Cinema). */
+export function appUpdateInstall(appId) {
+  if (!/^[a-z0-9.]+$/.test(appId)) return Promise.reject(new Error('bad app id'));
+  const cmd = 'PY=$(command -v python3 || command -v python); rm -f /run/cinema-tvtools/update.json; ' +
+    'setsid "$PY" ' + shQuote(UPDATE_SCRIPT) + ' install ' + shQuote(appId) + ' </dev/null >/dev/null 2>&1 & echo started';
+  return rootScriptOutput(execRoot(cmd, 10000));
+}
+
+/** Progress of the last install: {state, app, version, error} or null. */
+export function appUpdateProgress() {
+  return execRoot('cat /run/cinema-tvtools/update.json 2>/dev/null || echo null', 8000).then(function (res) {
+    try { return JSON.parse(readExecStdout(res)); } catch (err) { return null; }
+  });
+}

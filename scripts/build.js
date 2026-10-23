@@ -117,6 +117,7 @@ async function build() {
     'disable-voice.sh',
     // Settings -> TV: root daemon keeping LG's extras off.
     'tvtools.py',
+    'update-app.py',
     'enable-tvtools.sh',
     'disable-tvtools.sh'
   ].forEach(function (name) {

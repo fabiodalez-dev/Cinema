@@ -32,7 +32,10 @@ import {
   tvToolsStatus,
   tvToolsApply,
   tvToolsRefresh,
-  powerOffTv
+  powerOffTv,
+  appUpdatesCheck,
+  appUpdateInstall,
+  appUpdateProgress
 } from './luna.js';
 import {isHomeApp} from './remote.js';
 import {isTerminalAppId, getAppIdCandidates} from './app-icons.js';
@@ -256,7 +259,8 @@ const settings = createSettingsPanel(elements.settingsPanel, getBaseConfig, {
   },
   onRendered: function () {
     if (cinematic) cinematic.mountSettings(elements.settingsPanel);
-    mountTvToolsSettings(elements.settingsPanel, {status: tvToolsStatus, apply: tvToolsApply});
+    mountTvToolsSettings(elements.settingsPanel, {status: tvToolsStatus, apply: tvToolsApply,
+      updates: {check: appUpdatesCheck, install: appUpdateInstall, progress: appUpdateProgress}});
     // Land focus inside the panel so wheel / arrows navigate options immediately.
     if (focus && typeof focus.focusWithin === 'function') {
       focus.focusWithin('#settings-panel');
@@ -1267,6 +1271,20 @@ function keepSettingsFromBeforeUpdate() {
   });
 }
 
+const UPDATE_CHECK_KEY = 'cinema.updateCheck.v1';
+function checkUpdatesDaily() {
+  let last = 0;
+  try { last = Number(localStorage.getItem(UPDATE_CHECK_KEY)) || 0; } catch (err) { /* no storage */ }
+  if (Date.now() - last < 24 * 3600 * 1000) return;
+  try { localStorage.setItem(UPDATE_CHECK_KEY, String(Date.now())); } catch (err) { /* ignore */ }
+  appUpdatesCheck().then(function (result) {
+    const names = Object.keys(result || {}).filter(function (id) {
+      return result[id].installed && result[id].update;
+    }).map(function (id) { return result[id].name + ' ' + result[id].latest; });
+    if (names.length) showToast('Aggiornamento disponibile: ' + names.join(', ') + '. Impostazioni → TV.');
+  }).catch(function () { /* offline or no root */ });
+}
+
 // The last dock, before any Luna call: a cold start would otherwise show the
 // home screen without apps until the TV's app list arrives.
 function paintCachedDock() {
@@ -1468,6 +1486,9 @@ async function init() {
   }
   // A Cinema update brings a new TV tools daemon: put it in place.
   tvToolsRefresh().catch(function () { /* not installed or no root */ });
+  // Once a day: tell the owner when Cinema or Bloomee has a new release.
+  // Nothing is installed without Settings -> TV -> Aggiorna.
+  setTimeout(checkUpdatesDaily, 60000);
   syncVoice(cfg);
 }
 

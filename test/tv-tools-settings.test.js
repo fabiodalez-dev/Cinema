@@ -108,3 +108,30 @@ describe('TV tools settings', () => {
       .toEqual({preloadOff: ['vudu', 'amazon'], settingsOff: ['adCookie'], servicesOff: ['contentminer'], keepInMemory: ['org.webosbrew.lounge.launcher'], remoteKeys: {}});
   });
 });
+
+describe('updates', () => {
+  it('lists each app with its state and installs on request', async () => {
+    const {mountUpdates} = await import('../src/js/tv-tools-settings.js');
+    document.body.innerHTML = '<div class="settings-panel"><div id="c"></div></div>';
+    const install = vi.fn(async () => 'started');
+    let calls = 0;
+    const progress = vi.fn(async () => (++calls < 2 ? {app: 'org.bloomee.webos', state: 'downloading', version: '0.3.5'} : {app: 'org.bloomee.webos', state: 'installed', version: '0.3.5'}));
+    vi.useFakeTimers();
+    mountUpdates(document.getElementById('c'), {
+      check: async () => ({
+        'org.webosbrew.lounge.launcher': {name: 'Cinema', installed: '0.2.0', latest: '0.2.0', update: false},
+        'org.bloomee.webos': {name: 'Bloomee', installed: '0.3.4', latest: '0.3.5', update: true}
+      }),
+      install, progress
+    }, (() => { let i = 0; return () => i++; })());
+    await vi.runAllTimersAsync();
+    const rows = [...document.querySelectorAll('.settings-row')];
+    expect(rows[0].textContent).toBe('Cinema 0.2.0 · aggiornata');
+    expect(rows[1].textContent).toContain('Bloomee 0.3.4 · disponibile 0.3.5');
+    rows[1].querySelector('button').click();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(install).toHaveBeenCalledWith('org.bloomee.webos');
+    expect(rows[1].textContent).toBe('Bloomee 0.3.5 · installata');
+    vi.useRealTimers();
+  });
+});
