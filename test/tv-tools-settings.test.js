@@ -14,6 +14,11 @@ function status(extra) {
     settings: {adCookie: 'off', livePlus: 'off'},
     services: {contentminer: 'inactive', remotelogger: 'active'},
     remoteKeys: ['blue', 'netflix', 'unknown'],
+    consent: [
+      {key: 'customAdAllowed', on: true, docs: ['Termini di uso', 'Pubblicità'], peers: ['acrAdAllowed']},
+      {key: 'acrAdAllowed', on: true, docs: [], peers: ['customAdAllowed']},
+      {key: 'voiceAllowed', on: true, docs: [], peers: []}
+    ],
     apps: {'org.bloomee.webos': 'Bloomee', 'com.webos.app.hdmi1': 'HDMI 1', 'netflix': 'Netflix', 'com.webos.app.settings': 'Impostazioni', 'kodi': 'Kodi'},
     installed: {'org.bloomee.webos': true},
     memorySupported: true,
@@ -81,6 +86,22 @@ describe('TV tools settings', () => {
     selects[1].value = '';
     await panel.__tvToolsSave();
     expect(apply.mock.calls[0][0].remoteKeys).toEqual({blue: 'com.webos.app.hdmi1', netflix: ''});
+  });
+
+  it('data agreements: says what goes off together, applies only the changed ones', async () => {
+    const apply = vi.fn(async () => true);
+    const consent = vi.fn(async () => ({ok: true}));
+    document.body.innerHTML = '<div id="p"><div class="settings-tab-pane" data-tab="tv"></div></div>';
+    const panel = document.getElementById('p');
+    mountTvToolsSettings(panel, {status: () => Promise.resolve(status()), apply, consent});
+    await new Promise((r) => setTimeout(r, 0));
+    const row = [...panel.querySelectorAll('.settings-row')].find((r) => r.textContent === 'Pubblicità personalizzata');
+    expect(row.nextElementSibling.textContent).toBe('Spegnendolo si spengono anche: Pubblicità basata su ciò che guardi.');
+    expect(panel.textContent).toContain('Senza, i comandi vocali non funzionano.');
+    row.querySelector('input').checked = false;
+    await panel.__tvToolsSave();
+    expect(consent.mock.calls).toEqual([['customAdAllowed', false]]);
+    expect(apply).not.toHaveBeenCalled();
   });
 
   it('Salva applies nothing when nothing changed', async () => {

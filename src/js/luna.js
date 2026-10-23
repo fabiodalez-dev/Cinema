@@ -1186,3 +1186,16 @@ export function appUpdateProgress() {
     try { return JSON.parse(readExecStdout(res)); } catch (err) { return null; }
   });
 }
+
+/** Switch one LG data agreement flag on or off (see tvtools.py set_consent). */
+export function tvToolsConsent(key, on) {
+  if (!/^[A-Za-z0-9]+$/.test(key)) return Promise.reject(new Error('bad key'));
+  const cmd = 'PY=$(command -v python3 || command -v python); F=' + shQuote(TVTOOLS_ROOT_COPY) +
+    '; [ -f "$F" ] || F=' + shQuote(TVTOOLS_APP) + '; "$PY" "$F" consent ' + key + ' ' + (on ? 'on' : 'off');
+  return execRoot(cmd, 30000).then(function (res) {
+    const out = readExecStdout(res);
+    const r = JSON.parse(out.slice(out.indexOf('{')));
+    if (!r.ok) throw new Error(r.error || 'not applied');
+    return r;
+  });
+}

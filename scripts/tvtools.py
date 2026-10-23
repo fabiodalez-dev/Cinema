@@ -523,6 +523,106 @@ def apply_keys(conf, remove=False):
         log('remote key filter reloaded')
 
 
+# ---- data agreements ---------------------------------------------------------
+# settingsservice keeps the consent flags in eulaStatus, but rebuilds them at
+# boot from eulaInfoNetwork, LG's agreement documents with an accepted mark on
+# each: a flag written alone comes back. So switching a flag off withdraws the
+# documents it rests on, except those a flag that cannot be switched off still
+# needs (the terms of use); flags resting on a withdrawn document go off with
+# it. Logic from Glasshouse's privacy.js (MIT), measured there on webOS 4.4.
+
+EULA_FILE = '/var/palm/license/eulaInfoNetwork.json'
+CONSENT_LOCKED = set(['generalTermsAllowed', 'networkAllowed', 'firstUseAllowed', 'allAllowed'])
+CONSENT_HIDDEN = set(['chpAllowed'])
+
+
+def consent_groups():
+    """flag -> the documents it needs, from LG's own mapping."""
+    groups = {}
+    mapping = read_json(EULA_FILE, {}).get('eulaMappingList') or {}
+    for e in mapping.get('eulaInfo') or []:
+        if isinstance(e, dict) and e.get('settingKey'):
+            groups[e['settingKey']] = sorted(e.get('mandatory') or e.get('generalSelectAll') or [])
+    return groups
+
+
+def consent_read():
+    st = luna('luna://com.webos.settingsservice/getSystemSettings', {'keys': ['eulaStatus']})
+    docs = luna('luna://com.webos.settingsservice/getSystemSettings', {'keys': ['eulaInfoNetwork']})
+    flags = (st.get('settings') or {}).get('eulaStatus')
+    eln = (docs.get('settings') or {}).get('eulaInfoNetwork')
+    if not isinstance(flags, dict) or not isinstance(eln, dict) or not isinstance(eln.get('eulaList'), list):
+        return None, None
+    return flags, eln
+
+
+def plan_consent(key, on, flags, eln, groups):
+    accepted = set(d['id'] for d in eln['eulaList'] if isinstance(d, dict) and d.get('accepted'))
+    need = groups.get(key) or []
+    if on:
+        accepted.update(need)
+    else:
+        protected = set()
+        for k, docs in groups.items():
+            if k in CONSENT_LOCKED and flags.get(k):
+                protected.update(docs)
+        accepted.difference_update([d for d in need if d not in protected])
+    next_flags = dict(flags)
+    changed = []
+    for k, docs in groups.items():
+        if k not in next_flags or k in CONSENT_LOCKED:
+            continue
+        if next_flags[k] and not (docs and all(d in accepted for d in docs)):
+            next_flags[k] = False
+            changed.append(k)
+    if next_flags.get(key) != on:
+        next_flags[key] = on
+        if key not in changed:
+            changed.append(key)
+    next_docs = json.loads(json.dumps(eln))
+    for d in next_docs['eulaList']:
+        if isinstance(d, dict):
+            d['accepted'] = d.get('id') in accepted
+    return next_flags, next_docs, changed
+
+
+def consent_settable(key, groups):
+    return key not in CONSENT_LOCKED and key not in CONSENT_HIDDEN and key in groups
+
+
+def consent_status():
+    flags, eln = consent_read()
+    if flags is None:
+        return None
+    groups = consent_groups()
+    titles = dict((d.get('id'), d.get('title') or d.get('name') or d.get('id')) for d in eln['eulaList'] if isinstance(d, dict))
+    out = []
+    for k in sorted(flags):
+        if not consent_settable(k, groups):
+            continue
+        # Flags sharing a document with this one go off with it.
+        peers = sorted(o for o in groups if o != k and consent_settable(o, groups) and o in flags
+                       and set(groups[o]) & (set(groups[k]) - set(groups.get('generalTermsAllowed') or [])))
+        out.append({'key': k, 'on': bool(flags[k]), 'docs': [titles.get(d, d) for d in groups[k]], 'peers': peers})
+    return out
+
+
+def set_consent(key, on):
+    groups = consent_groups()
+    flags, eln = consent_read()
+    if flags is None or key not in flags or not consent_settable(key, groups):
+        return {'ok': False, 'error': 'not settable'}
+    next_flags, next_docs, changed = plan_consent(key, on, flags, eln, groups)
+    if not changed:
+        return {'ok': True, 'changed': []}
+    luna('luna://com.webos.settingsservice/setSystemSettings',
+         {'settings': {'eulaInfoNetwork': next_docs, 'eulaStatus': next_flags}})
+    now, _ = consent_read()
+    ok = bool(now) and now.get(key) == on
+    log('consent %s -> %s (%s)%s' % (key, on, ','.join(changed), '' if ok else ' NOT applied'))
+    return {'ok': ok, 'changed': changed}
+
+
 # ---- entry points -----------------------------------------------------------
 
 def apply_all(boot=False):
@@ -562,6 +662,7 @@ def status():
         'installed': dict((a, a in titles) for a in conf['keepInMemory'] + ['org.bloomee.webos']),
         'memorySupported': os.path.exists(MEM_SYSTEM),
         'remoteKeys': available_keys() if key_chain() is not None else [],
+        'consent': consent_status(),
         'apps': titles,
         'settings': setting_values(),
         'services': dict((s, service_active(s)) for s in SERVICES if service_exists(s)),
@@ -654,6 +755,8 @@ if __name__ == '__main__':
     cmd = sys.argv[1] if len(sys.argv) > 1 else 'status'
     if cmd == 'apply':
         apply_all()
+    elif cmd == 'consent' and len(sys.argv) > 3:
+        print(json.dumps(set_consent(sys.argv[2], sys.argv[3] == 'on')))
     elif cmd == 'restore-keys':
         apply_keys(load_conf(), remove=True)
     elif cmd == 'memory':

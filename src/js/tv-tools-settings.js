@@ -18,6 +18,31 @@ export const TV_SETTINGS = [
   {key: 'channelplus', label: 'LG Channels', hint: 'I canali in streaming di LG nella lista dei canali.'}
 ];
 
+// LG's data agreement flags (eulaStatus), as LG's own menu names them.
+export const CONSENT_LABELS = {
+  customAdAllowed: 'Pubblicità personalizzata',
+  customadsAllowed: 'Pubblicità personalizzata negli annunci',
+  cookiesAllowed: 'Cookie pubblicitari',
+  acrAdAllowed: 'Pubblicità basata su ciò che guardi',
+  acrAllowed: 'Riconoscimento dei contenuti (ACR)',
+  acrOnAllowed: 'Riconoscimento dei contenuti (ACR)',
+  acrGdprAllowed: 'Riconoscimento dei contenuti (ACR, GDPR)',
+  voiceAllowed: 'Riconoscimento vocale',
+  voice2Allowed: 'Dati vocali',
+  additionalDataAllowed: 'Dati aggiuntivi sull’utilizzo',
+  remoteDiagAllowed: 'Diagnostica remota',
+  thirdPartySharingAllowed: 'Condivisione con terze parti',
+  marketingOnAllowed: 'Comunicazioni di marketing',
+  shoppingOnAllowed: 'Shopping in TV',
+  takeOnAllowed: 'Servizi aggiuntivi LG'
+};
+
+function consentLabel(key) {
+  if (CONSENT_LABELS[key]) return CONSENT_LABELS[key];
+  const m = /^additional(\d+)Allowed$/.exec(key);
+  return m ? 'Accordo aggiuntivo ' + m[1] : key;
+}
+
 export const TV_SERVICES = [
   {id: 'contentminer', label: 'Analisi dei contenuti (ACR)'},
   {id: 'remotelogger', label: 'Invio dei log a LG'},
@@ -244,7 +269,7 @@ export function mountTvToolsSettings(panel, api) {
       return;
     }
     const conf = status.conf || {};
-    const controls = {preload: {}, settings: {}, services: {}, memory: null, keys: {}};
+    const controls = {preload: {}, settings: {}, services: {}, memory: null, keys: {}, consent: {}};
 
     if (status.memorySupported) {
       const mem = section('Memoria', 'Con poca memoria webOS chiude le app aperte quando ne apri un’altra. Così Cinema riparte da zero a ogni tasto Home e la musica di Bloomee si ferma.');
@@ -303,11 +328,39 @@ export function mountTvToolsSettings(panel, api) {
       });
     }
 
+    const consent = status.consent || [];
+    if (consent.length) {
+      const ag = section('Accordi sui dati', 'Gli accordi che hai accettato con LG. Spegnerne uno ritira anche il documento LG da cui dipende, così non torna acceso al riavvio; i termini d’uso non vengono toccati. Le voci che usano lo stesso documento si spengono insieme.');
+      consent.forEach(function (c) {
+        const others = (c.peers || []).filter(function (p) {
+          return consent.some(function (o) { return o.key === p && o.on; });
+        }).map(consentLabel);
+        let hint = '';
+        if (others.length) hint = 'Spegnendolo si spengono anche: ' + others.join(', ') + '.';
+        if (/^voice/.test(c.key)) hint = (hint ? hint + ' ' : '') + 'Senza, i comandi vocali non funzionano.';
+        controls.consent[c.key] = toggle(ag, consentLabel(c.key), c.on, hint);
+      });
+    }
+
     const actions = node('div', 'cinema-settings-actions');
     const state = node('p', 'settings-hint', status.daemon ? 'Attivo.' : 'Non attivo.');
     // Saved with the panel's own Salva, like every other setting.
     panel.__tvToolsSave = async function () {
       const next = tvToolsDraft(status, controls);
+      const consentChanges = (status.consent || []).filter(function (c) {
+        return controls.consent[c.key] && controls.consent[c.key].checked !== c.on;
+      });
+      if (consentChanges.length && api.consent) {
+        state.textContent = 'Aggiornamento degli accordi…';
+        for (const c of consentChanges) {
+          await api.consent(c.key, controls.consent[c.key].checked);
+        }
+        if (JSON.stringify(normalized(next)) === JSON.stringify(normalized(conf))) {
+          state.textContent = 'Accordi aggiornati.';
+          refresh();
+          return true;
+        }
+      }
       if (JSON.stringify(normalized(next)) === JSON.stringify(normalized(conf))) return null;
       state.textContent = 'Applicazione in corso…';
       try {

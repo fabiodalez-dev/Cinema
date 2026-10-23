@@ -35,7 +35,8 @@ import {
   powerOffTv,
   appUpdatesCheck,
   appUpdateInstall,
-  appUpdateProgress
+  appUpdateProgress,
+  tvToolsConsent
 } from './luna.js';
 import {isHomeApp} from './remote.js';
 import {isTerminalAppId, getAppIdCandidates} from './app-icons.js';
@@ -259,7 +260,7 @@ const settings = createSettingsPanel(elements.settingsPanel, getBaseConfig, {
   },
   onRendered: function () {
     if (cinematic) cinematic.mountSettings(elements.settingsPanel);
-    mountTvToolsSettings(elements.settingsPanel, {status: tvToolsStatus, apply: tvToolsApply,
+    mountTvToolsSettings(elements.settingsPanel, {status: tvToolsStatus, apply: tvToolsApply, consent: tvToolsConsent,
       updates: {check: appUpdatesCheck, install: appUpdateInstall, progress: appUpdateProgress}});
     // Land focus inside the panel so wheel / arrows navigate options immediately.
     if (focus && typeof focus.focusWithin === 'function') {

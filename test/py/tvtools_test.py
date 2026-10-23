@@ -67,6 +67,34 @@ class Keys(unittest.TestCase):
         self.assertEqual(src.count('{'), src.count('}'))
 
 
+class Consent(unittest.TestCase):
+    groups = {'generalTermsAllowed': ['S_SVC'], 'customAdAllowed': ['S_SVC', 'S_TAG'],
+              'acrAdAllowed': ['S_SVC', 'S_ADG', 'S_TAG'], 'acrOnAllowed': ['S_SVC', 'S_ADG'],
+              'voiceAllowed': ['S_SVC', 'S_VNG']}
+    flags = {'generalTermsAllowed': True, 'customAdAllowed': True, 'acrAdAllowed': True, 'acrOnAllowed': True, 'voiceAllowed': True}
+    eln = {'eulaList': [{'id': i, 'accepted': True} for i in ('S_SVC', 'S_TAG', 'S_ADG', 'S_VNG')]}
+
+    def test_switching_off_withdraws_its_documents_but_never_the_terms(self):
+        flags, docs, changed = tv.plan_consent('customAdAllowed', False, self.flags, self.eln, self.groups)
+        accepted = dict((d['id'], d['accepted']) for d in docs['eulaList'])
+        self.assertEqual(accepted, {'S_SVC': True, 'S_TAG': False, 'S_ADG': True, 'S_VNG': True})
+        # acrAdAllowed rests on S_TAG too: it goes off with it.
+        self.assertEqual(sorted(changed), ['acrAdAllowed', 'customAdAllowed'])
+        self.assertTrue(flags['generalTermsAllowed'] and flags['acrOnAllowed'] and flags['voiceAllowed'])
+
+    def test_switching_on_accepts_what_it_needs(self):
+        off = dict(self.flags, customAdAllowed=False)
+        eln = {'eulaList': [{'id': 'S_SVC', 'accepted': True}, {'id': 'S_TAG', 'accepted': False}]}
+        flags, docs, changed = tv.plan_consent('customAdAllowed', True, off, eln, self.groups)
+        self.assertTrue(flags['customAdAllowed'])
+        self.assertTrue([d for d in docs['eulaList'] if d['id'] == 'S_TAG'][0]['accepted'])
+
+    def test_locked_and_hidden_flags_are_not_offered(self):
+        self.assertFalse(tv.consent_settable('generalTermsAllowed', self.groups))
+        self.assertFalse(tv.consent_settable('chpAllowed', dict(self.groups, chpAllowed=['S_SVC'])))
+        self.assertTrue(tv.consent_settable('customAdAllowed', self.groups))
+
+
 class RunDir(unittest.TestCase):
     def test_refuses_a_runtime_directory_others_can_write(self):
         d = tempfile.mkdtemp(); os.chmod(d, 0o777); old = tv.RUN; tv.RUN = d

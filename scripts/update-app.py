@@ -32,7 +32,6 @@ APPS = {
 APPS_DIR = '/media/developer/apps/usr/palm/applications'
 RUN = '/run/cinema-tvtools'
 PROGRESS = os.path.join(RUN, 'update.json')
-STAGE = '/media/developer/temp/cinema-update'
 UA = 'Cinema-webOS-updater'
 
 
@@ -105,11 +104,20 @@ def check():
     return out
 
 
-def progress(state, **extra):
+def run_dir():
+    """/run/cinema-tvtools, root only; refused if it is a link or not ours."""
+    import stat
     try:
         os.mkdir(RUN, 0o700)
     except OSError:
         pass
+    st = os.lstat(RUN)
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:
+        raise RuntimeError('unsafe ' + RUN)
+
+
+def progress(state, **extra):
+    run_dir()
     data = dict(extra, state=state, at=int(time.time()))
     tmp = PROGRESS + '.tmp'
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
@@ -164,17 +172,22 @@ def install(app_id):
     if not expected or hashlib.sha256(data).hexdigest() != expected:
         progress('failed', app=app_id, error='SHA-256 non corrisponde')
         return False
-    if not os.path.isdir(STAGE):
-        os.makedirs(STAGE)
-    path = os.path.join(STAGE, rel['ipk'])
-    with open(path, 'wb') as f:
-        f.write(data)
-    progress('installing', app=app_id, version=rel['version'])
-    ok = luna_install(app_id, path)
+    # Staged where only root can reach it (appinstalld runs as root): the
+    # usual /media/developer/temp is writable by every app, which could swap
+    # the package between the SHA-256 check and the install.
+    import shutil
+    import tempfile
+    stage = tempfile.mkdtemp(prefix='update-', dir=RUN)
     try:
-        os.remove(path)
-    except OSError:
-        pass
+        os.chmod(stage, 0o700)
+        path = os.path.join(stage, rel['ipk'])
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, 'wb') as f:
+            f.write(data)
+        progress('installing', app=app_id, version=rel['version'])
+        ok = luna_install(app_id, path)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
     if not ok or installed_version(app_id) != rel['version']:
         progress('failed', app=app_id, error='Installazione non riuscita')
         return False
