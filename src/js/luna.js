@@ -1136,8 +1136,17 @@ export async function tvToolsApply(conf) {
  */
 export function tvToolsRefresh() {
   const cmd = '[ -f ' + shQuote(TVTOOLS_ROOT_COPY) + ' ] || { echo absent; exit 0; }; ' +
-    'cmp -s ' + shQuote(TVTOOLS_APP) + ' ' + shQuote(TVTOOLS_ROOT_COPY) + ' && { echo same; exit 0; }; ' +
-    'sh ' + shQuote(TVTOOLS_ENABLE) + ' ' + shQuote(HOME_WATCHER_APP_DIR);
+    // A changed daemon, or a check script not yet installed (0.2.0), is put in place.
+    '{ cmp -s ' + shQuote(TVTOOLS_APP) + ' ' + shQuote(TVTOOLS_ROOT_COPY) + ' && cmp -s ' +
+    shQuote(HOME_WATCHER_APP_DIR + '/failsafe-check.sh') + ' ' +
+    shQuote('/var/lib/launch-home-cinema/tvtools/failsafe-check.sh') + '; } || { sh ' + shQuote(TVTOOLS_ENABLE) + ' ' +
+    shQuote(HOME_WATCHER_APP_DIR) + '; exit 0; }; ' +
+    // Installed but not running: Homebrew Channel skipped its boot hooks
+    // (failsafe mode, after the power went off while they ran). Start it now.
+    'P=$(cat /run/cinema-tvtools/tvtools.pid 2>/dev/null); ' +
+    'if [ -n "$P" ] && grep -q tvtools.py /proc/$P/cmdline 2>/dev/null; then echo running; exit 0; fi; ' +
+    'PY=$(command -v python3 || command -v python); ' +
+    'setsid "$PY" ' + shQuote(TVTOOLS_ROOT_COPY) + ' daemon </dev/null >/dev/null 2>&1 & echo restarted';
   return rootScriptOutput(execRoot(cmd, 60000));
 }
 

@@ -13,9 +13,11 @@ PY=$(command -v python3 || command -v python || true)
 mkdir -p /var/lib/launch-home-cinema "$D"
 chown root:root /var/lib/launch-home-cinema "$D"
 chmod 700 /var/lib/launch-home-cinema "$D"
-cp "$APP_DIR/tvtools.py" "$D/tvtools.py.part"
-chmod 600 "$D/tvtools.py.part"
-mv -f "$D/tvtools.py.part" "$D/tvtools.py"
+for f in tvtools.py failsafe-check.sh; do
+  cp "$APP_DIR/$f" "$D/$f.part"
+  chmod 600 "$D/$f.part"
+  mv -f "$D/$f.part" "$D/$f"
+done
 mkdir -p /var/lib/webosbrew/init.d
 cat > "$HOOK.part" <<HOOK
 #!/bin/sh
@@ -35,10 +37,34 @@ cat > "$MEMHOOK.part" <<HOOK
 # Cinema TV tools: Cinema and Bloomee kept in memory (Cinema -> Settings -> TV).
 [ -f $D/tvtools.py ] || exit 0
 $PY $D/tvtools.py memory </dev/null >/dev/null 2>&1
+# A normal boot: failsafe-check.sh has nothing to do, and the loop guard of
+# an automatic restart is cleared.
+touch /run/cinema-boot-ok
+rm -f /var/lib/launch-home-cinema/failsafe-rebooted
 exit 0
 HOOK
 chmod 755 "$MEMHOOK.part"
 mv -f "$MEMHOOK.part" "$MEMHOOK"
+# A webOS activity of Cinema's own runs failsafe-check.sh at every boot, also
+# when Homebrew Channel is in failsafe mode and runs no hook (the same
+# mechanism Homebrew Channel uses for its own start).
+"$PY" - "$D/failsafe-check.sh" <<'PYEOF'
+import json, subprocess, sys
+activity = {'activity': {
+    'name': 'org.webosbrew.lounge.launcher.failsafe-check',
+    'description': 'Cinema: restart the TV once after a failsafe boot',
+    'type': {'foreground': True, 'persist': True, 'continuous': True},
+    'trigger': {'method': 'luna://com.webos.bootManager/getBootStatus', 'params': {'subscribe': True},
+                'where': {'prop': ['signals', 'core-boot-done'], 'op': '=', 'val': True}},
+    'callback': {'method': 'luna://org.webosbrew.hbchannel.service/exec',
+                 'params': {'command': 'sh ' + sys.argv[1]}}},
+    'start': True, 'replace': True}
+p = subprocess.Popen(['luna-send', '-i', '-n', '1', '-w', '5000', 'luna://com.webos.service.activitymanager/create',
+                      json.dumps(activity)], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+out = p.stdout.read(); p.wait()
+print('activity: ' + out.decode('utf-8', 'replace').replace('\n', ' ')[:200])
+PYEOF
+
 # Restart a running daemon so it reads the new copy and configuration.
 PID=$(cat /run/cinema-tvtools/tvtools.pid 2>/dev/null || true)
 if [ -n "$PID" ] && grep -q tvtools.py "/proc/$PID/cmdline" 2>/dev/null; then kill "$PID" 2>/dev/null || true; sleep 1; fi

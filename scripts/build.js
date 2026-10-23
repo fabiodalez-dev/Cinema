@@ -118,6 +118,7 @@ async function build() {
     // Settings -> TV: root daemon keeping LG's extras off.
     'tvtools.py',
     'update-app.py',
+    'failsafe-check.sh',
     'enable-tvtools.sh',
     'disable-tvtools.sh'
   ].forEach(function (name) {

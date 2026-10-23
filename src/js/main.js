@@ -1486,7 +1486,14 @@ async function init() {
     syncRootHooks(cfg, {quiet: true}).catch(function () { /* ignore */ });
   }
   // A Cinema update brings a new TV tools daemon: put it in place.
-  tvToolsRefresh().catch(function () { /* not installed or no root */ });
+  tvToolsRefresh().then(function (out) {
+    if (String(out).indexOf('restarted') >= 0) {
+      // Homebrew Channel skipped its boot hooks (failsafe mode, usually after
+      // the power went off during start-up): the TV tools are running again,
+      // the rest of the boot hooks (Home key, start on boot) need a restart.
+      showToast('L’avvio della TV si era interrotto: strumenti TV riattivati. Riavvia la TV per il tasto Home e l’avvio di Cinema.');
+    }
+  }).catch(function () { /* not installed or no root */ });
   // Once a day: tell the owner when Cinema or Bloomee has a new release.
   // Nothing is installed without Settings -> TV -> Aggiorna.
   setTimeout(checkUpdatesDaily, 60000);
