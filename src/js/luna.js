@@ -113,16 +113,34 @@ export function getAppInfo(id) {
   }), 4000);
 }
 
+/** Longest a root command may run when the caller sets no limit of its own. */
+export const ROOT_EXEC_TIMEOUT_MS = 20000;
+
+// Tail of the root command queue: every exec waits for the previous one.
+let rootQueue = Promise.resolve();
+
 /**
  * Run a shell command through the Homebrew Channel root service. On a rooted TV
  * with the service elevated this executes as root; otherwise it fails or runs
  * unprivileged. Resolves with the raw exec response.
+ *
+ * Commands run one at a time: Homebrew Channel forks a child per exec, and a
+ * burst of parallel execs on a cold start once left a forked child deadlocked
+ * before exec, hanging the service for every app. `timeoutMs` (default
+ * ROOT_EXEC_TIMEOUT_MS) counts from the moment the command actually starts, so
+ * time spent waiting in the queue never eats into it; a command that never
+ * answers is abandoned after that limit and the next one starts.
  */
-export function execRoot(command) {
-  return lunaRequest('luna://org.webosbrew.hbchannel.service', {
-    method: 'exec',
-    parameters: {command: command}
+export function execRoot(command, timeoutMs) {
+  const limit = timeoutMs > 0 ? timeoutMs : ROOT_EXEC_TIMEOUT_MS;
+  const run = rootQueue.then(function () {
+    return withTimeout(lunaRequest('luna://org.webosbrew.hbchannel.service', {
+      method: 'exec',
+      parameters: {command: command}
+    }), limit);
   });
+  rootQueue = run.catch(function () { /* the caller sees the error */ });
+  return run;
 }
 
 /**
@@ -164,7 +182,7 @@ export function readFileAsDataUrl(path) {
   const clean = String(path).replace(/^file:\/\//, '');
   const command = 'cat -- "' + clean.replace(/(["$`\\])/g, '\\$1') + '"';
   // Root through Homebrew Channel can stop answering; don't wait for good.
-  return withTimeout(execRoot(command), 8000).then(function (res) {
+  return execRoot(command, 8000).then(function (res) {
     const b64 = res && res.stdoutBytes ? String(res.stdoutBytes).replace(/\s+/g, '') : '';
     if (!b64) return null;
     return 'data:' + guessImageMime(clean) + ';base64,' + b64;
@@ -232,7 +250,7 @@ function listAppsViaRoot() {
     '{}',
     5000
   );
-  return withTimeout(execRoot(command), 6000).then(function (res) {
+  return execRoot(command, 6000).then(function (res) {
     const out = readExecStdout(res);
     if (!out) throw new Error('empty listApps output');
 
@@ -260,7 +278,7 @@ function listLaunchPointAppsViaRoot() {
     '{}',
     6000
   );
-  return withTimeout(execRoot(command), 8000).then(function (res) {
+  return execRoot(command, 8000).then(function (res) {
     const data = JSON.parse(readExecStdout(res));
     if (data && data.returnValue === false) {
       throw new Error(data.errorText || 'listLaunchPoints failed');
@@ -304,7 +322,7 @@ export function listLaunchPoints() {
     '{}',
     6000
   );
-  return withTimeout(execRoot(command), 8000).then(function (res) {
+  return execRoot(command, 8000).then(function (res) {
     const data = JSON.parse(readExecStdout(res));
     if (data && data.returnValue === false) {
       throw new Error(data.errorText || 'listLaunchPoints failed');
@@ -339,7 +357,7 @@ function getForegroundViaRoot() {
     '{"subscribe":true}',
     4000
   );
-  return withTimeout(execRoot(command), 5000).then(function (res) {
+  return execRoot(command, 5000).then(function (res) {
     const out = readExecStdout(res);
     if (!out) throw new Error('empty getForegroundAppInfo output');
     const data = JSON.parse(out);
@@ -360,7 +378,7 @@ export function launchAppViaRoot(id) {
     JSON.stringify({id: id}),
     4000
   );
-  return withTimeout(execRoot(command), 5000).then(function (res) {
+  return execRoot(command, 5000).then(function (res) {
     const out = readExecStdout(res);
     if (!out) return {returnValue: true};
     const data = JSON.parse(out);
@@ -399,7 +417,7 @@ export function enableHomeWatcher() {
   const cmd =
     'chmod 755 "' + HOME_WATCHER_ENABLE + '" "' + HOME_WATCHER_APP_PATH +
     '" 2>/dev/null; sh "' + HOME_WATCHER_ENABLE + '"';
-  return rootScriptOutput(withTimeout(execRoot(cmd), 20000)).then(function (out) {
+  return rootScriptOutput(execRoot(cmd, 20000)).then(function (out) {
     if (out.indexOf('missing_watcher') >= 0) {
       throw new Error('home-watcher.sh not installed on TV');
     }
@@ -427,7 +445,7 @@ export function runTvCheck(appLine) {
     DIAGNOSTICS_SCRIPT + '" --open-settings --app \'' + app + '\'';
   // Usually 30-40 s; up to about two minutes when TV Settings is slow and
   // won't close by itself (the script then tries other ways).
-  return rootScriptOutput(withTimeout(execRoot(cmd), 150000));
+  return rootScriptOutput(execRoot(cmd, 150000));
 }
 
 // Settings -> Backup & restore. The TV copy is outside the app folder, so it
@@ -466,23 +484,23 @@ export function rootWriteCommands(path, text) {
 
 async function writeFileAsRoot(path, text) {
   for (const cmd of rootWriteCommands(path, text)) {
-    const out = await rootScriptOutput(withTimeout(execRoot(cmd), 10000));
+    const out = await rootScriptOutput(execRoot(cmd, 10000));
     if (out.indexOf('written') < 0) throw new Error(out.split('\n')[0] || 'could not write');
   }
 }
 
 /** A file's text read as root, or null when it doesn't exist. */
 async function readFileAsRoot(path) {
-  const res = await withTimeout(execRoot(
-    'if [ -f ' + shQuote(path) + ' ]; then cat ' + shQuote(path) + '; else echo __missing__; fi'), 10000);
+  const res = await execRoot(
+    'if [ -f ' + shQuote(path) + ' ]; then cat ' + shQuote(path) + '; else echo __missing__; fi', 10000);
   const out = readExecStdout(res);
   return out === '__missing__' ? null : out;
 }
 
 /** The text of every *.json file in `dir`, read as root: [{path, text}]. */
 async function readJsonFilesAsRoot(dir) {
-  const res = await withTimeout(execRoot('for f in ' + shQuote(dir) + '/*.json; do ' +
-    '[ -f "$f" ] || continue; printf \'\\n' + FILE_MARK + '%s\\n\' "$f"; cat "$f"; done; echo'), 10000);
+  const res = await execRoot('for f in ' + shQuote(dir) + '/*.json; do ' +
+    '[ -f "$f" ] || continue; printf \'\\n' + FILE_MARK + '%s\\n\' "$f"; cat "$f"; done; echo', 10000);
   const out = '\n' + readExecStdout(res);
   return out.split('\n' + FILE_MARK).slice(1).map(function (chunk) {
     const cut = chunk.indexOf('\n');
@@ -498,8 +516,8 @@ export async function writeAutoBackup(name, text) {
   const safe = String(name).replace(/[^A-Za-z0-9._-]/g, '_');
   await writeFileAsRoot(SETTINGS_AUTO_DIR + '/' + safe, text);
   try {
-    await withTimeout(execRoot('cd ' + shQuote(SETTINGS_AUTO_DIR) + ' && ls -t before-update-*.json ' +
-      '2>/dev/null | tail -n +' + (AUTO_UPDATE_COPIES + 1) + ' | while read -r f; do rm -f "$f"; done'), 10000);
+    await execRoot('cd ' + shQuote(SETTINGS_AUTO_DIR) + ' && ls -t before-update-*.json ' +
+      '2>/dev/null | tail -n +' + (AUTO_UPDATE_COPIES + 1) + ' | while read -r f; do rm -f "$f"; done', 10000);
   } catch (err) {
     // Old copies are only tidied up.
   }
@@ -553,7 +571,7 @@ export async function readSettingsBackups(usbRoots) {
  * tuned (e.g. a TV only used with a set-top box).
  */
 export function getTvChannels() {
-  return withTimeout(execRoot('sh "' + CHANNELS_SCRIPT + '" list'), 20000).then(function (res) {
+  return execRoot('sh "' + CHANNELS_SCRIPT + '" list', 20000).then(function (res) {
     return readExecStdout(res).split('\n').map(function (line) {
       const f = line.split('\t');
       if (f.length < 6 || !f[0] || !f[2]) return null;
@@ -571,7 +589,7 @@ export function getTvChannels() {
 
 /** The channel Live TV is on and the programme now: {number, name, programme}. */
 export function getTvChannelNow() {
-  return withTimeout(execRoot('sh "' + CHANNELS_SCRIPT + '" now'), 12000).then(function (res) {
+  return execRoot('sh "' + CHANNELS_SCRIPT + '" now', 12000).then(function (res) {
     const f = readExecStdout(res).split('\t');
     return {number: f[0] || '', name: f[1] || '', programme: f[2] || ''};
   });
@@ -582,7 +600,7 @@ export function openTvChannel(channel) {
   const id = String((channel && channel.id) || '').replace(/[^A-Za-z0-9_.-]/g, '');
   const number = String((channel && channel.number) || '').replace(/[^0-9.-]/g, '');
   const cmd = 'sh "' + CHANNELS_SCRIPT + '" open "' + id + '" "' + number + '"';
-  return rootScriptOutput(withTimeout(execRoot(cmd), 20000)).then(function (out) {
+  return rootScriptOutput(execRoot(cmd, 20000)).then(function (out) {
     if (out.indexOf('opened') < 0) throw new Error('the TV didn\u2019t switch channel');
     return true;
   });
@@ -619,7 +637,7 @@ export function enableVoice() {
   const cmd =
     'chmod 755 "' + VOICE_ENABLE + '" "' + VOICE_RUN + '" 2>/dev/null; sh "' +
     VOICE_ENABLE + '"';
-  return rootScriptOutput(withTimeout(execRoot(cmd), 150000)).then(function (out) {
+  return rootScriptOutput(execRoot(cmd, 150000)).then(function (out) {
     if (out.indexOf('missing_voice') >= 0) {
       throw new Error('voice files are missing from Cinema');
     }
@@ -643,7 +661,7 @@ export function enableVoice() {
 /** True while Cinema's voice run loop is alive (voice-run.sh status). */
 export function isVoiceRunning() {
   const cmd = 'sh "' + VOICE_RUN + '" status 2>/dev/null || echo stopped';
-  return withTimeout(execRoot(cmd), 8000).then(function (res) {
+  return execRoot(cmd, 8000).then(function (res) {
     return readExecStdout(res).indexOf('running') === 0;
   });
 }
@@ -655,7 +673,7 @@ export function isVoiceRunning() {
 export function disableVoice() {
   const cmd =
     'chmod 755 "' + VOICE_DISABLE + '" 2>/dev/null; sh "' + VOICE_DISABLE + '"';
-  return rootScriptOutput(withTimeout(execRoot(cmd), 45000)).then(function (out) {
+  return rootScriptOutput(execRoot(cmd, 45000)).then(function (out) {
     if (out.indexOf('disabled') < 0) {
       throw new Error(out.split('\n')[0] || 'voice assistant did not stop');
     }
@@ -670,7 +688,7 @@ export function disableHomeWatcher() {
   const cmd =
     'chmod 755 "' + HOME_WATCHER_DISABLE + '" 2>/dev/null; sh "' +
     HOME_WATCHER_DISABLE + '"';
-  return withTimeout(execRoot(cmd), 8000).then(function () {
+  return execRoot(cmd, 8000).then(function () {
     return true;
   }).catch(function () {
     return false;
@@ -682,7 +700,7 @@ export function isHomeWatcherRunning() {
   const cmd =
     'if [ -f "' + HOME_WATCHER_PIDFILE + '" ] && kill -0 $(cat "' +
     HOME_WATCHER_PIDFILE + '") 2>/dev/null; then echo running; else echo stopped; fi';
-  return withTimeout(execRoot(cmd), 5000).then(function (res) {
+  return execRoot(cmd, 5000).then(function (res) {
     return readExecStdout(res).indexOf('running') >= 0;
   }).catch(function () {
     return false;
@@ -697,7 +715,7 @@ export function enableBootLaunch() {
   const cmd =
     'chmod 755 "' + BOOT_LAUNCH_ENABLE + '" "' + BOOT_LAUNCH_SCRIPT +
     '" 2>/dev/null; sh "' + BOOT_LAUNCH_ENABLE + '"';
-  return rootScriptOutput(withTimeout(execRoot(cmd), 12000)).then(function (out) {
+  return rootScriptOutput(execRoot(cmd, 12000)).then(function (out) {
     if (out.indexOf('missing_boot_script') >= 0) {
       throw new Error('boot-launch.sh not installed on TV');
     }
@@ -715,7 +733,7 @@ export function disableBootLaunch() {
   const cmd =
     'chmod 755 "' + BOOT_LAUNCH_DISABLE + '" 2>/dev/null; sh "' +
     BOOT_LAUNCH_DISABLE + '"';
-  return withTimeout(execRoot(cmd), 8000).then(function () {
+  return execRoot(cmd, 8000).then(function () {
     return true;
   }).catch(function () {
     return false;
@@ -763,7 +781,7 @@ export function getAllInputStatus() {
 /** The input service's list read as root, for when the in-app call fails. */
 export function getAllInputStatusViaRoot() {
   const command = lunaSendRootCommand('luna://com.webos.service.eim/getAllInputStatus', '{}', 5000);
-  return withTimeout(execRoot(command), 7000).then(function (res) {
+  return execRoot(command, 7000).then(function (res) {
     const data = JSON.parse(readExecStdout(res));
     if (!data || data.returnValue === false || !Array.isArray(data.devices)) {
       throw new Error('getAllInputStatus failed');
@@ -962,7 +980,7 @@ export function setScreensaverTimeout(minutes) {
     'print("ok",d.get("screenSaverTimer"),d.get("screenOffTime"),en)\n' +
     '\'';
 
-  return withTimeout(execRoot(py), 10000).then(function (res) {
+  return execRoot(py, 10000).then(function (res) {
     const out = readExecStdout(res);
     if (out.indexOf('ok') < 0) {
       return {returnValue: false, value: saverVal, enabled: enabled, out: out};
