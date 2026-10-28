@@ -156,7 +156,17 @@ body.cinematic .cinema-live-sources button,body.cinematic .cinema-live-actions b
 body.cinematic .cinema-source.selected{background:#e5e5e9;color:#17171d;border-color:#e5e5e9}
 body.cinematic.cinema-live #input-row{display:none}
 body.cinematic.cinema-live #channel-strip:not([hidden]){bottom:390px;max-height:360px}
-body.cinematic.settings-open .cinema-live-controls,body.cinematic.custom-screensaver-active .cinema-live-controls{visibility:hidden;pointer-events:none}
+body.cinematic.settings-open .cinema-live-controls,body.cinematic.custom-screensaver-active .cinema-live-controls,body.cinematic.settings-open .cinema-live-banner,body.cinematic.custom-screensaver-active .cinema-live-banner{visibility:hidden;pointer-events:none}
+/* Channel banner: number, name and programme, also over the clean picture. */
+.cinema-live-banner{display:none}
+body.cinematic.cinema-live .cinema-live-banner{display:flex;align-items:center;position:absolute;left:80px;top:150px;z-index:4;max-width:900px;padding:18px 34px 18px 28px;border-radius:18px;background:rgba(18,18,22,.84);color:#f7f6f4;opacity:0;transition:opacity 180ms ease;pointer-events:none}
+body.cinematic.cinema-live .cinema-live-banner.visible{opacity:1}
+body.cinematic .cinema-live-banner-number{font-size:58px;font-weight:600;letter-spacing:-1px;min-width:72px;margin-right:26px;font-variant-numeric:tabular-nums}
+body.cinematic .cinema-live-banner-text{display:flex;flex-direction:column;min-width:0}
+body.cinematic .cinema-live-banner-name{font-size:30px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.cinematic .cinema-live-banner-programme{font-size:21px;color:#c9c9cf;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.cinematic .cinema-live-banner-programme:empty{display:none}
+body.cinema-no-motion .cinema-live-banner{transition:none!important}
 
 /* Wide dock (Settings -> App -> Barra delle app: Estesa): a full-width bar of
    equal tiles with the name always shown and the HDMI inputs as tiles,

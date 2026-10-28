@@ -6,6 +6,10 @@
 #                              id<TAB>number<TAB>name<TAB>radio<TAB>hidden<TAB>favourite
 #   channels.sh now            number<TAB>name<TAB>programme on now
 #   channels.sh open ID NUMBER switch Live TV to that channel; prints "opened"
+#   channels.sh current        id of the channel the tuner shows (the last one)
+#   channels.sh tune ID        make ID the last channel: the embedded tv://
+#                              picture opens on it; prints "tuned"
+#   channels.sh programme ID   name of the programme on ID now
 #
 # A channel list can be big (a satellite scan has 1000+ channels at about 1 KB
 # each), so it is cut down here to one short line per channel.
@@ -24,16 +28,19 @@ function field(key,    v) {
   if (!match($0, "\"" key "\" *: *(\"[^\"]*\"|\\[[^]]*\\]|[^,}]*)")) return ""
   v = substr($0, RSTART, RLENGTH)
   sub(/^[^:]*: */, "", v)
+  sub(/[ \t]+$/, "", v)
   gsub(/^"|"$/, "", v)
   return v
 }'
 
 case "$1" in
   list)
-    # Each channel object starts with "channelId": split there, one per line.
-    call "$API/getChannelList" '{}' 15000 | sed 's/"channelId"/\
-"channelId"/g' | awk "$AWK_FIELD"'
-      /^"channelId"/ {
+    # One channel object per line. Each object opens with "channelNumber" and
+    # has "channelId" further on: splitting at "channelId" paired every id
+    # with the next channel's number and name.
+    call "$API/getChannelList" '{}' 15000 | sed 's/{ *"channelNumber"/\
+{"channelNumber"/g' | awk "$AWK_FIELD"'
+      index($0, "{\"channelNumber\"") == 1 {
         id = field("channelId"); num = field("channelNumber"); name = field("channelName")
         if (id == "" || name == "") next
         radio = (field("Radio") == "true") ? 1 : 0
@@ -78,8 +85,29 @@ case "$1" in
     echo failed
     exit 1
     ;;
+  current)
+    call luna://com.webos.service.utp.channel/getLastChannelId '{"sourceType":"INPUTSOURCE_NONE"}' |
+      awk "$AWK_FIELD"'{ print field("channelId") }'
+    ;;
+  tune)
+    id=$(printf '%s' "$2" | tr -cd 'A-Za-z0-9_.-')
+    [ -n "$id" ] || { echo failed; exit 1; }
+    if call luna://com.webos.service.utp.channel/setLastChannelId "{\"channelId\":\"$id\"}" |
+        grep -q '"returnValue": *true'; then
+      echo tuned
+      exit 0
+    fi
+    echo failed
+    exit 1
+    ;;
+  programme)
+    id=$(printf '%s' "$2" | tr -cd 'A-Za-z0-9_.-')
+    [ -n "$id" ] || exit 1
+    call "$API/getChannelCurrentProgramInfo" "{\"channelId\":\"$id\"}" |
+      awk "$AWK_FIELD"'{ print field("programName") }'
+    ;;
   *)
-    echo "usage: channels.sh list | now | open ID NUMBER"
+    echo "usage: channels.sh list | now | open ID NUMBER | current | tune ID | programme ID"
     exit 2
     ;;
 esac

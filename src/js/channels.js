@@ -17,7 +17,8 @@ const LIST_MAX_AGE_MS = 30 * 60 * 1000;
 const RETRY_AFTER_FAIL_MS = 60 * 1000;
 // The last list read, kept across restarts: reading it needs root, and the
 // Channels chip and Live TV input shouldn't vanish when root doesn't answer.
-const KEPT_KEY = 'lounge.channels.v1';
+// v1 lists paired each id with the next channel's number and name.
+const KEPT_KEY = 'lounge.channels.v2';
 
 // The kept list, or null when this TV's list has never been read.
 function keptChannels() {
@@ -129,6 +130,8 @@ export function createChannelStrip(strip, getConfig, options) {
   }
 
   function select(channel) {
+    // Cinema's Live picture changes channel in place.
+    if (opts.onSelect && opts.onSelect(channel)) { close(); return; }
     if (opts.onBeforeLaunch) opts.onBeforeLaunch();
     close();
     openTvChannel(channel).catch(function () {
