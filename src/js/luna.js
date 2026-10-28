@@ -610,6 +610,35 @@ export function openTvChannel(channel) {
   });
 }
 
+/** Id of the channel the TV tuner is on (its last channel), or '' if unknown. */
+export function getTvCurrentChannelId() {
+  return execRoot('sh "' + CHANNELS_SCRIPT + '" current', 8000).then(function (res) {
+    return readExecStdout(res);
+  });
+}
+
+/**
+ * Make `channel` ({id}) the TV's last channel without opening LG's Live TV:
+ * an embedded tv:// picture opened afterwards shows it. Rejects if refused.
+ */
+export function tuneTvChannel(channel) {
+  const id = String((channel && channel.id) || '').replace(/[^A-Za-z0-9_.-]/g, '');
+  if (!id) return Promise.reject(new Error('no channel'));
+  return rootScriptOutput(execRoot('sh "' + CHANNELS_SCRIPT + '" tune "' + id + '"', 8000)).then(function (out) {
+    if (out.indexOf('tuned') < 0) throw new Error('the TV didn’t switch channel');
+    return true;
+  });
+}
+
+/** Name of the programme on `channel` ({id}) now, or '' when the guide has none. */
+export function getTvProgramme(channel) {
+  const id = String((channel && channel.id) || '').replace(/[^A-Za-z0-9_.-]/g, '');
+  if (!id) return Promise.resolve('');
+  return execRoot('sh "' + CHANNELS_SCRIPT + '" programme "' + id + '"', 8000).then(function (res) {
+    return readExecStdout(res);
+  });
+}
+
 /**
  * What a root script printed, whether it exited 0 or not. Homebrew Channel
  * reports a non-zero exit as a Luna failure object with no `message`, which

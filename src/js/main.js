@@ -36,7 +36,10 @@ import {
   appUpdatesCheck,
   appUpdateInstall,
   appUpdateProgress,
-  tvToolsConsent
+  tvToolsConsent,
+  getTvCurrentChannelId,
+  tuneTvChannel,
+  getTvProgramme
 } from './luna.js';
 import {isHomeApp} from './remote.js';
 import {isTerminalAppId, getAppIdCandidates} from './app-icons.js';
@@ -167,6 +170,7 @@ function channelsChip() {
 const channelStrip = createChannelStrip(elements.channelStrip, getConfig, {
   onToast: showToast,
   onBeforeLaunch: beforeInputLaunch,
+  onSelect: function (channel) { return !!(cinematic && cinematic.tuneChannel(channel)); },
   focusControl: function (el) {
     return !!(focus && focus.focusElement(el));
   },
@@ -1514,6 +1518,10 @@ try {
     getInputs: function(){return inputs.getDevices();},
     switchInput: switchInput,
     openChannels: function(){if(!channelStrip.isOpen())channelStrip.toggle();},
+    getChannels: function(){return channelStrip.refresh();},
+    getCurrentChannelId: getTvCurrentChannelId,
+    tuneChannel: tuneTvChannel,
+    getProgramme: getTvProgramme,
     openApp: function (id, params) {
       if (!params || !Object.keys(params).length) {
         return launchApp(id).catch(function () { return launchAppViaRoot(id); });

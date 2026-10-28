@@ -4,6 +4,8 @@ import {createBackdropPainter} from './cinema-backdrop.js';
 import {createLiveControls} from './cinema-live-controls.js';
 import {mountCinemaSettings, cinemaDraft, normalizeCinemaPrefs} from './cinema-settings.js';
 import {createLivePreview, liveDevices} from './cinema-live.js';
+import {createZapper} from './live-zapping.js';
+import {digitFromKey} from './remote.js';
 import nativeCatalog from '../../assets/native-icons/catalog.json';
 import {request} from './cinema-jellyfin.js';
 import {execRoot,listApps} from './luna.js';
@@ -87,6 +89,37 @@ export function createCinematic(host) {
   const livePreview=createLivePreview(root,{supported:!!window.PalmSystem,onStatus:function(text,state){
     liveStatus.textContent=text;livePanel.dataset.state=state;
   }});
+  // Channel banner over the picture, also while the controls are hidden.
+  const liveBanner=el('div','cinema-live-banner');liveBanner.setAttribute('role','status');liveBanner.setAttribute('aria-live','polite');
+  const bannerNumber=el('strong','cinema-live-banner-number'),bannerText=el('div','cinema-live-banner-text');
+  const bannerName=el('span','cinema-live-banner-name'),bannerProgramme=el('span','cinema-live-banner-programme');
+  bannerText.appendChild(bannerName);bannerText.appendChild(bannerProgramme);liveBanner.appendChild(bannerNumber);liveBanner.appendChild(bannerText);root.appendChild(liveBanner);
+  let bannerTimer=null,bannerChannel=null;
+  function showBanner(state){
+    clearTimeout(bannerTimer);bannerChannel=state.channel||null;bannerProgramme.textContent='';
+    if(state.channel){
+      bannerNumber.textContent=state.channel.number;bannerName.textContent=state.channel.name;
+      if(liveDevice.id==='TV')liveName.textContent=state.channel.number+'  '+state.channel.name;
+      const channel=state.channel;
+      if(host.getProgramme)Promise.resolve(host.getProgramme(channel)).then(function(text){if(bannerChannel===channel)bannerProgramme.textContent=text||'';},function(){});
+    }else if(state.failed){bannerNumber.textContent=state.failed.number;bannerName.textContent='Impossibile passare a '+state.failed.name;}
+    else{bannerNumber.textContent=state.typed+(state.missing?'':'–');bannerName.textContent=state.missing?'Canale non disponibile':'';}
+    liveBanner.classList.add('visible');
+    // Digits being typed stay until the number is taken.
+    if(!state.typed||state.missing)bannerTimer=setTimeout(function(){liveBanner.classList.remove('visible');},4500);
+  }
+  function hideBanner(){clearTimeout(bannerTimer);bannerChannel=null;liveBanner.classList.remove('visible');}
+  const zapper=host.getChannels?createZapper({
+    channels:host.getChannels,currentId:host.getCurrentChannelId,tune:host.tuneChannel,banner:showBanner,
+    reopen:function(){if(isLive())selectLive(tvDevice());}
+  }):null;
+  function tvDevice(){return liveDevices(host.getInputs(),(host.getConfig().launcher||{}).inputLabels||{})[0];}
+  // CH+ / CH- as the LG remote reports them to a web app (PageUp / PageDown).
+  function channelKey(e){
+    if(e.keyCode===33||e.keyCode===427||e.key==='PageUp'||e.key==='ChannelUp')return 1;
+    if(e.keyCode===34||e.keyCode===428||e.key==='PageDown'||e.key==='ChannelDown')return -1;
+    return 0;
+  }
   let appSnapshot=null, appSnapshotAt=0;
   async function mediaSnapshot(){if(appSnapshot&&Date.now()-appSnapshotAt<30000)return appSnapshot;appSnapshot=await listApps();appSnapshotAt=Date.now();return appSnapshot;}
   async function launchMediaApp(item,discover){
@@ -127,6 +160,16 @@ export function createCinematic(host) {
   document.addEventListener('keydown',function(e){
     if(!isLive()||overlayOpen())return;
     const code=e.keyCode;
+    if(zapper){
+      const delta=channelKey(e),digit=digitFromKey(code,e.key);
+      if(delta||digit>=0||((code===13||e.key==='Enter')&&zapper.typing())){
+        e.preventDefault();e.stopImmediatePropagation();
+        // On an HDMI source the channel keys go back to TV, as on LG's Live TV.
+        if(liveDevice.id!=='TV'){selectLive(tvDevice(),true);if(delta)return;}
+        if(delta)zapper.step(delta);else if(digit>=0)zapper.digit(digit);else zapper.enter();
+        return;
+      }
+    }
     if([427,428,447,448,449].indexOf(code)>=0||/^[0-9]$/.test(e.key||'')||(code>=48&&code<=57)||(code>=96&&code<=105))return;
     if(revealLive()){e.preventDefault();e.stopImmediatePropagation();}
   },true);
@@ -147,7 +190,7 @@ export function createCinematic(host) {
   liveOverlayObserver.observe(document.body,{attributes:true,attributeFilter:['class']});
   liveOverlayObserver.observe(root,{attributes:true,attributeFilter:['hidden'],subtree:true});
   function isLive(){return prefs.enabled&&currentTab==='live';}
-  function suspendLive(){livePreview.stop();liveControls.pause();}
+  function suspendLive(){livePreview.stop();liveControls.pause();if(zapper)zapper.stop();hideBanner();}
   function resumeLive(){if(isLive()&&!document.hidden){startLive(liveDevice);liveControls.enter();}}
   function renderLiveSources(){
     const labels=(host.getConfig().launcher||{}).inputLabels||{};
@@ -163,12 +206,23 @@ export function createCinematic(host) {
     if(focused){const same=Array.from(liveSources.children).find(function(n){return n.dataset.liveSource===focused;});if(same)host.focus.focusElement(same);}
   }
   function startLive(device){
-    liveDevice=device;liveName.textContent=device.label||device.id;
     host.beforePreview();
+    selectLive(device,true);
+  }
+  // The picture only, without volume or music changes: also each channel
+  // change. `sync` reads which channel the tuner is on (it may have moved in
+  // LG's Live TV meanwhile).
+  function selectLive(device,sync){
+    liveDevice=device;
+    const known=device.id==='TV'&&zapper&&zapper.current();
+    liveName.textContent=known?known.number+'  '+known.name:(device.label||device.id);
     livePreview.start(device.id);
     liveSources.querySelectorAll('button').forEach(function(b){
       const selected=b.dataset.liveSource===device.id;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));
     });
+    if(!zapper)return;
+    if(device.id!=='TV'){zapper.stop();hideBanner();}
+    else if(sync)zapper.sync();
   }
 
   function button(label, cls, index, action) {
@@ -353,5 +407,5 @@ export function createCinematic(host) {
   showItems(prefs.jellyfin?(cached.resume.length?cached.resume:cached.items):[],cached.resume.length?'Continua a guardare':cached.items.length?'Aggiunti di recente':'Le tue scorciatoie');
   if(cached.at)setStatus('Jellyfin offline',false);
   setTimeout(function(){refresh(true);},300);
-  return {refresh:refresh,mountSettings:mountSettings,applySettings:applySettings,syncConfig:syncConfig,setEnabled:setEnabled,isLive:isLive,suspendLive:suspendLive,refreshInputs:function(){if(isLive())renderLiveSources();},back:function(){if(discoverPanel.isOpen()){discoverPanel.close();return true;}if(!isLive())return false;selectTab('home');host.focus.focusElement(nav.querySelector('[data-cinema-tab=live]'));return true;}};
+  return {tuneChannel:function(channel){if(!zapper||!isLive())return false;if(liveDevice.id!=='TV')selectLive(tvDevice(),false);zapper.go(channel);return true;},refresh:refresh,mountSettings:mountSettings,applySettings:applySettings,syncConfig:syncConfig,setEnabled:setEnabled,isLive:isLive,suspendLive:suspendLive,refreshInputs:function(){if(isLive())renderLiveSources();},back:function(){if(discoverPanel.isOpen()){discoverPanel.close();return true;}if(!isLive())return false;selectTab('home');host.focus.focusElement(nav.querySelector('[data-cinema-tab=live]'));return true;}};
 }
