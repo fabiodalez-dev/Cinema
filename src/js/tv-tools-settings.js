@@ -316,7 +316,7 @@ export function mountTvToolsSettings(panel, api) {
     off.appendChild(offRow);
     controls.powerOffAt = offSelect;
 
-    const first = section('Accensione', 'All’accensione la TV apre Cinema invece di Live TV: nel primo minuto lo schermo resta nero, poi compare Cinema, circa 40 secondi prima di adesso, e LG non rimette la TV sopra Cinema alla fine dell’avvio. Per partire Cinema usa un ingresso HDMI libero; canali e ingressi si aprono come sempre da Cinema.');
+    const first = section('Accensione', 'All’accensione Cinema parte appena la TV lo permette, molto prima di adesso, e LG non rimette la TV sopra Cinema alla fine dell’avvio. Nei primi secondi si vede la TV, come sempre; canali e ingressi si aprono come prima.');
     controls.cinemaFirst = toggle(first, 'Apri Cinema all’accensione', conf.cinemaFirst === true, '');
 
     const rows = preloadRows(status);
