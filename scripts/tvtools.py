@@ -487,7 +487,79 @@ def available_keys():
     return [k for k, sym in REMOTE_KEYS if sym.split('.')[-1] in text]
 
 
-def filter_source():
+# Settings -> TV -> "Apri Cinema all'accensione": the filter also starts
+# Cinema during a cold boot. LG's compositor loads it within seconds of
+# power-on, long before Homebrew Channel's hooks (about 55 s), and it may call
+# the app manager directly. While bootd's input stand-in (Cinema's id,
+# windowGroup true), an input or nothing is in front, Cinema is launched every
+# few seconds until the real one is there; LG takes launches of normal apps
+# from about 25-35 s. Reloaded while the TV is in use (boot-done already true)
+# it does nothing. Idea from lg-luma's home-filter.js (PR #89).
+START_FIRST_JS = [
+    'var cinemaBoot = "";',
+    'var cinemaFront = "";',
+    'var cinemaStandin = false;',
+    'var cinemaLaunches = 0;',
+    'var cinemaSeen = 0;',
+    'var cinemaTicking = false;',
+    'var cinemaLiveShown = 0;',
+    'var cinemaAppsReady = false;',
+    'function cinemaIsInput(id) {',
+    '    return /^com\\.webos\\.app\\.(livetv|hdmi\\d|inputcommon|externalinput\\..*)$/.test(id);',
+    '}',
+    'function cinemaTick() {',
+    '    try {',
+    '        if (cinemaBoot !== "booting") { cinemaTicking = false; return; }',
+    '        // While Cinema cannot load yet, Live TV covers bootd\'s empty card for',
+    '        // Cinema (about 21 s, on an HDMI with nothing on it, see',
+    '        // apply_first_app), again whenever that card comes back in front.',
+    '        if (cinemaStandin && cinemaLiveShown < 6) {',
+    '            cinemaLiveShown++;',
+    '            applicationManager.launch("com.webos.app.livetv", "{}");',
+    '        }',
+    '        if (cinemaFront === "%s" && !cinemaStandin) {' % 'org.webosbrew.lounge.launcher',
+    '            cinemaSeen++;',
+    '            if (cinemaSeen >= 2) { cinemaTicking = false; return; }',
+    '        } else {',
+    '            cinemaSeen = 0;',
+    '            var free = !cinemaFront || cinemaFront === "%s" || cinemaIsInput(cinemaFront);' % 'org.webosbrew.lounge.launcher',
+    '            // Before minimal-boot-done a launch only puts Cinema\'s empty card',
+    '            // over Live TV (seen: black from 22 s to 38 s).',
+    '            if (free && cinemaAppsReady && cinemaLaunches < 40) {',
+    '                cinemaLaunches++;',
+    '                applicationManager.launch("%s", "{}");' % 'org.webosbrew.lounge.launcher',
+    '            }',
+    '        }',
+    '        genericTimer.set(1500, cinemaTick);',
+    '    } catch (e) {',
+    '        cinemaTicking = false;',
+    '        console.warn("cinema keyfilter: " + e + "; start left to the boot hook");',
+    '    }',
+    '}',
+    'function cinemaStartWatch() {',
+    '    lunaCall.subscribe("com.webos.bootManager", "/getBootStatus", "{\\"subscribe\\":true}", function (payload) {',
+    '        try {',
+    '            var r = typeof payload === "string" ? JSON.parse(payload) : payload;',
+    '            if (!r || !r.signals) return;',
+    '            if (cinemaBoot === "") cinemaBoot = r.signals["boot-done"] ? "done" : "booting";',
+    '            if (r.signals["minimal-boot-done"]) cinemaAppsReady = true;',
+    '            if (cinemaBoot === "booting" && !cinemaTicking) { cinemaTicking = true; cinemaTick(); }',
+    '        } catch (e) { console.warn("cinema keyfilter: " + e); }',
+    '    }, true);',
+    '    lunaCall.subscribe("com.webos.applicationManager", "/getForegroundAppInfo", "{\\"subscribe\\":true,\\"extraInfo\\":true}", function (payload) {',
+    '        try {',
+    '            var r = typeof payload === "string" ? JSON.parse(payload) : payload;',
+    '            var info = r && r.foregroundAppInfo && r.foregroundAppInfo.length ? r.foregroundAppInfo[0] : r;',
+    '            if (!info || info.returnValue === false) return;',
+    '            cinemaFront = info.appId || "";',
+    '            cinemaStandin = info.windowGroup === true;',
+    '        } catch (e) { console.warn("cinema keyfilter: " + e); }',
+    '    }, true);',
+    '}',
+]
+
+
+def filter_source(start_first=False):
     lines = [
         '/* Written by Cinema (Settings -> TV): the remote keys set there, read from',
         ' * configd ' + KEYS_VALUE + '. First in ' + CHAIN_KEY + ',',
@@ -514,8 +586,16 @@ def filter_source():
         '        console.warn("cinema keyfilter: " + e + "; keys left as they were");',
         '    }',
         '}',
+    ]
+    if start_first:
+        lines += START_FIRST_JS
+    lines += [
         'function init() {',
         '    try {',
+    ]
+    if start_first:
+        lines += ['        cinemaStartWatch();']
+    lines += [
         '        lunaCall.subscribe("com.webos.service.config", "/getConfigs",',
         '            JSON.stringify({ "configNames": ["%s"], "subscribe": true }), cinemaKeysChanged, true);' % KEYS_VALUE,
         '    } catch (e) {',
@@ -555,7 +635,7 @@ def apply_keys(conf, remove=False):
         return
     ours = [e for e in chain if isinstance(e, dict) and e.get('file') == FILTER_FILE]
     rest = [e for e in chain if not (isinstance(e, dict) and e.get('file') == FILTER_FILE)]
-    if remove or (not conf['remoteKeys'] and not ours):
+    if remove or (not conf['remoteKeys'] and not conf.get('cinemaFirst')):
         if ours:
             write_chain(rest)
             log('remote key filter taken out of the chain')
@@ -563,7 +643,7 @@ def apply_keys(conf, remove=False):
         if remove and os.path.exists(FILTER_FILE):
             os.remove(FILTER_FILE)
         return
-    src = filter_source()
+    src = filter_source(bool(conf.get('cinemaFirst')))
     current = None
     try:
         with open(FILTER_FILE) as f:
@@ -922,12 +1002,11 @@ def self_uninstall():
 # At power-on LG's bootd launches the app named in /var/lib/eim/lastinput
 # (physicalLastSourceAppId) at about 16 s, before any Homebrew Channel hook, and
 # at the end of its boot it opens the last input again over whatever is in
-# front. With Cinema named there and the input set to an HDMI with nothing
-# plugged in, the screen stays black instead of showing Live TV, and the end of
-# LG's boot leaves Cinema alone. A web app named there only gets an input
-# stand-in (com.webos.app.inputcommon, windowGroup true), so boot-launch.sh
-# launches the real Cinema as soon as Homebrew Channel starts it (on screen at
-# about 65 s instead of 110 s). The file is pinned read-only with a bind mount,
+# front. With Cinema named there (LG's own input kept, so Live TV shows while
+# Cinema starts), the end of LG's boot leaves Cinema alone. A web app named
+# there only gets an input stand-in (com.webos.app.inputcommon, windowGroup
+# true): the compositor key filter launches the real Cinema as soon as LG takes
+# launches, and boot-launch.sh does it too when Homebrew Channel starts. The file is pinned read-only with a bind mount,
 # as LG rewrites it whenever an input is used (its rewrite then fails and EIM
 # keeps the real input in memory). Same idea as lgtv-webos-root-launcher and
 # lg-luma (PR #89).
@@ -953,6 +1032,17 @@ def pinned_lastinput(input_id, app_id):
     return {'type': input_id, 'appId': app_id, 'physicalLastSourceId': input_id, 'physicalLastSourceAppId': CINEMA_ID}
 
 
+def pinned_from_lg(lg):
+    """LG's own last input (Live TV, usually) kept as the input bootd starts,
+    with Cinema as the app: while Cinema starts, the stand-in shows that input
+    instead of a black screen."""
+    lg = lg if isinstance(lg, dict) and lg.get('physicalLastSourceId') else DEFAULT_LASTINPUT
+    source = lg.get('physicalLastSourceId')
+    app = lg.get('appId') if lg.get('appId') and lg.get('appId') != CINEMA_ID else DEFAULT_LASTINPUT['appId']
+    return {'type': lg.get('type') or source, 'appId': app, 'physicalLastSourceId': source,
+            'physicalLastSourceAppId': CINEMA_ID}
+
+
 def lastinput_pinned():
     try:
         return any(line.split()[1] == LASTINPUT for line in open('/proc/mounts'))
@@ -974,9 +1064,22 @@ def apply_first_app(conf):
             current = read_json(LASTINPUT, None)
             if isinstance(current, dict) and current.get('physicalLastSourceAppId') != CINEMA_ID:
                 write_plain(LG_LASTINPUT, json.dumps(current, separators=(',', ':')), 0o600)
-        if not os.path.exists(PINNED):
-            inputs = luna('luna://com.webos.service.eim/getAllInputStatus', {}).get('devices')
-            write_plain(PINNED, json.dumps(pinned_lastinput(*boot_input(inputs)), separators=(',', ':')))
+        # An HDMI with nothing on it as the input bootd starts: with Live TV
+        # there, LG reopened Live TV over Cinema at the end of its boot (seen
+        # at 82 s). Live TV still shows while Cinema starts: the key filter
+        # opens it (START_FIRST_JS).
+        inputs = luna('luna://com.webos.service.eim/getAllInputStatus', {}).get('devices')
+        want = json.dumps(pinned_lastinput(*boot_input(inputs)), separators=(',', ':'))
+        have = None
+        try:
+            have = open(PINNED).read()
+        except IOError:
+            pass
+        if have != want:
+            # A new file is a new inode: the bind mount would keep the old one.
+            if lastinput_pinned():
+                subprocess.call(['umount', LASTINPUT])
+            write_plain(PINNED, want)
         if not lastinput_pinned():
             text = open(PINNED).read()
             if open(LASTINPUT).read() != text:

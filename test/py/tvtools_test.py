@@ -297,3 +297,22 @@ class PowerOnInput(unittest.TestCase):
             self.assertFalse(os.path.exists(tv.LG_LASTINPUT))
         finally:
             tv.LASTINPUT, tv.PINNED, tv.LG_LASTINPUT, tv.lastinput_pinned = old
+
+
+class PinnedFromLg(unittest.TestCase):
+    def test_lgs_input_is_kept_and_cinema_is_the_app(self):
+        lg = {'type': 'DTV', 'appId': 'com.webos.app.livetv', 'physicalLastSourceId': 'DTV',
+              'physicalLastSourceAppId': 'com.webos.app.livetv'}
+        self.assertEqual(tv.pinned_from_lg(lg), {'type': 'DTV', 'appId': 'com.webos.app.livetv',
+                                                 'physicalLastSourceId': 'DTV',
+                                                 'physicalLastSourceAppId': 'org.webosbrew.lounge.launcher'})
+
+    def test_missing_lg_file_means_live_tv(self):
+        self.assertEqual(tv.pinned_from_lg(None)['physicalLastSourceId'], 'DTV')
+
+    def test_boot_filter_only_when_asked(self):
+        self.assertNotIn('cinemaStartWatch', tv.filter_source(False))
+        src = tv.filter_source(True)
+        self.assertIn('cinemaStartWatch();', src)
+        self.assertIn('applicationManager.launch("org.webosbrew.lounge.launcher", "{}")', src)
+        self.assertIn('"boot-done"', src)
