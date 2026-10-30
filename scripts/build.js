@@ -95,8 +95,13 @@ async function build() {
     .replace('href="styles/main.css"', 'href="styles/main.css?v=' + cacheTag(path.join(root, 'src/styles/main.css')) + '"')
     .replace('href="styles/settings-cinema.css"', 'href="styles/settings-cinema.css?v=' + cacheTag(path.join(root, 'src/styles/settings-cinema.css')) + '"')
     .replace('href="styles/cinematic.css"', 'href="styles/cinematic.css?v=' + cacheTag(path.join(root, 'src/styles/cinematic.css')) + '"')
-    .replace('src="webOS.js"', 'src="webOS.js?v=' + cacheTag(webosLibSrc) + '"')
-    .replace('src="main.js"', 'src="main.js?v=' + cacheTag(path.join(dist, 'main.js')) + '"');
+  // Scripts change name instead: WAM runs with
+  // --disallow-code-cache-from-file-uris-with-query-string, so main.js?v=…
+  // was compiled from scratch (700 KB) at every start, slowest right after
+  // power-on when the TV is swapping. main.<hash>.js keeps the code cache.
+  const mainName = 'main.' + cacheTag(path.join(dist, 'main.js')) + '.js';
+  fs.renameSync(path.join(dist, 'main.js'), path.join(dist, mainName));
+  indexHtml = indexHtml.replace('src="main.js"', 'src="' + mainName + '"');
   fs.writeFileSync(indexPath, indexHtml);
   copyRecursive(path.join(root, 'src/styles'), path.join(dist, 'styles'));
   copyRecursive(path.join(root, 'assets'), path.join(dist, 'assets'), assetExcluded);
@@ -158,7 +163,10 @@ async function build() {
   if (!fs.existsSync(webosLib)) {
     throw new Error('Missing @procot/webostv — run npm install');
   }
-  fs.copyFileSync(webosLib, path.join(dist, 'webOS.js'));
+  // Same as main.js: a content-named file, so its code cache is kept.
+  const webosName = 'webOS.' + cacheTag(webosLib) + '.js';
+  fs.copyFileSync(webosLib, path.join(dist, webosName));
+  fs.writeFileSync(indexPath, fs.readFileSync(indexPath, 'utf8').replace('src="webOS.js"', 'src="' + webosName + '"'));
 
   console.log('Built dist/');
 }

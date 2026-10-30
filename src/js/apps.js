@@ -226,6 +226,10 @@ export function createAppGrid(container, getConfig, options) {
 
   async function openApp(app) {
     if (options.onBeforeLaunch) options.onBeforeLaunch();
+    // A slow app (Litefin took 11 s right after power-on) gave no sign that
+    // OK had worked: say so at once.
+    const name = app && app.title ? app.title : '';
+    if (options.onToast && name) options.onToast('Apertura di ' + name + '…');
 
     const ids = [];
     function addId(id) {
@@ -242,7 +246,7 @@ export function createAppGrid(container, getConfig, options) {
     if (launched) return launched;
 
     const label = app && app.title ? app.title : (app && app.id) || 'app';
-    if (options.onToast) options.onToast('Could not launch ' + label);
+    if (options.onToast) options.onToast('Impossibile aprire ' + label);
     return '';
   }
 

@@ -217,6 +217,31 @@ watch_wakes() {
   done
 }
 
+# LG's boot manager finishes about 100 s after power-on: at that point it
+# closes what was opened during the boot and launches the last input again
+# (Live TV). Cinema launched before then was closed and loaded a second time,
+# about 12 s of Live TV and a splash in between (seen on webOS 5.6). Wait for
+# that moment: "Bootd's job is done" in its log, else boot-done + 12 s, at most
+# until 150 s of uptime. A Homebrew Channel started late finds it done at once.
+wait_boot_done() {
+  BOOTD_LOG=/var/log/bootd.log
+  while [ "$(cut -d. -f1 /proc/uptime 2>/dev/null || echo 999)" -lt 150 ]; do
+    if [ -f "$BOOTD_LOG" ]; then
+      if grep -q "Bootd's job is done" "$BOOTD_LOG" 2>/dev/null; then
+        log "LG boot finished"
+        sleep 2
+        return 0
+      fi
+    elif luna_once 'luna://com.webos.bootManager/getBootStatus' '{}' 2>/dev/null | tr -d ' \n' | grep -q '"boot-done":true'; then
+      log "boot-done, waiting for LG's last input"
+      sleep 12
+      return 0
+    fi
+    sleep 1
+  done
+  log "LG boot not finished by 150 s: launching anyway"
+}
+
 if [ "$1" != "--wake-only" ]; then
   # Wait up to ~3 minutes for the app framework after power-on.
   i=0
@@ -230,6 +255,7 @@ if [ "$1" != "--wake-only" ]; then
     i=$((i + 1))
     sleep 2
   done
+  wait_boot_done
   bring_up 30 && guard_front 120
 fi
 
