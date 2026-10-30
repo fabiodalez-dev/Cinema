@@ -1,6 +1,6 @@
 {
   "name": "webos-launch-home",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Launch Home — fullscreen home screen for rooted LG webOS TVs",
   "private": true,
   "scripts": {

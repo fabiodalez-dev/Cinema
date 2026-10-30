@@ -191,7 +191,7 @@ body.cinematic.dock-wide #app-grid .app-tile.focused{transform:translateY(-3px) 
 body.cinematic.dock-wide #app-grid .app-tile.focused .app-label{opacity:1}
 body.cinematic.dock-wide #app-grid .input-icon{display:flex;align-items:center;justify-content:center;background:transparent;color:#f7f6f4}
 body.cinematic.dock-wide #app-grid .input-icon svg{width:34px;height:34px}
-body.cinematic.dock-wide #app-grid .input-sub{font-size:20px;line-height:1;color:rgba(247,246,244,.78);margin-top:-6px}
+body.cinematic.dock-wide #app-grid .input-sub{font-size:16px;line-height:1.1;color:rgba(247,246,244,.78);margin-top:0;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 body.cinematic.dock-wide #app-grid .input-tile.input-off{opacity:.5}
 body.cinematic.dock-wide #app-grid .input-tile.input-off.focused{opacity:.85}
 body.cinematic.dock-wide #app-grid .app-key{top:6px;right:6px}
