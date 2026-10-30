@@ -75,10 +75,17 @@ luna_once() {
   return 1
 }
 
+# The app in front. "standin" when it is LG's input stand-in under Cinema's id
+# (com.webos.app.inputcommon, windowGroup true): what bootd opens when
+# lastinput names Cinema (tvtools.py), a card with no page in it.
 foreground_app() {
-  luna_once 'luna://com.webos.applicationManager/getForegroundAppInfo' '{"subscribe":true}' 2>/dev/null \
-    | tr '\n' ' ' \
-    | sed -n 's/.*"appId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+  info=$(luna_once 'luna://com.webos.applicationManager/getForegroundAppInfo' '{"extraInfo":true}' 2>/dev/null | tr '\n' ' ')
+  id=$(printf '%s' "$info" | sed -n 's/.*"appId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+  if [ "$id" = "$APP_ID" ] && printf '%s' "$info" | grep -q '"windowGroup"[[:space:]]*:[[:space:]]*true'; then
+    echo standin
+  else
+    echo "$id"
+  fi
 }
 
 # Launch until Launch Home is in front on two checks in a row. Right after a
@@ -138,7 +145,7 @@ guard_front() {
     fg=$(foreground_app)
     case "$fg" in
       "$APP_ID"|"") ;;
-      com.webos.app.livetv|com.webos.app.hdmi*|com.webos.app.inputcommon|com.webos.app.externalinput.*)
+      standin|com.webos.app.livetv|com.webos.app.hdmi*|com.webos.app.inputcommon|com.webos.app.externalinput.*)
         if user_chose_input; then
           log "guard stopped: owner chose input $fg"
           return 0
@@ -242,6 +249,22 @@ wait_boot_done() {
   log "LG boot not finished by 150 s: launching anyway"
 }
 
+# Settings -> TV -> "Apri Cinema all'accensione" (tvtools.py): lastinput pinned
+# read-only to Cinema on an empty input, so LG neither shows Live TV nor puts
+# it back over Cinema at the end of its boot. Mounted here too, the first
+# thing after a boot, in case the TV tools daemon is late.
+PINNED=/var/lib/launch-home-cinema/lastinput.pinned
+LASTINPUT=/var/lib/eim/lastinput
+pin_lastinput() {
+  [ -f "$PINNED" ] && [ -f "$LASTINPUT" ] || return 1
+  grep -q " $LASTINPUT " /proc/mounts && return 0
+  cmp -s "$PINNED" "$LASTINPUT" || cat "$PINNED" >"$LASTINPUT" || return 1
+  if ! { mount --bind "$PINNED" "$LASTINPUT" && mount -o remount,ro,bind "$LASTINPUT"; }; then
+    umount "$LASTINPUT" 2>/dev/null
+    return 1
+  fi
+}
+
 if [ "$1" != "--wake-only" ]; then
   # Wait up to ~3 minutes for the app framework after power-on.
   i=0
@@ -255,7 +278,13 @@ if [ "$1" != "--wake-only" ]; then
     i=$((i + 1))
     sleep 2
   done
-  wait_boot_done
+  if pin_lastinput; then
+    # Nothing to wait for: bootd won't reopen Live TV over Cinema. Replace
+    # the input stand-in with the real Cinema as soon as it will load.
+    log "Cinema at power-on: lastinput pinned, launching now"
+  else
+    wait_boot_done
+  fi
   bring_up 30 && guard_front 120
 fi
 

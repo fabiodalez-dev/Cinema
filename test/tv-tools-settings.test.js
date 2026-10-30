@@ -129,7 +129,7 @@ describe('TV tools settings', () => {
     const panel = await mounted(status(), apply);
     [...panel.querySelectorAll('button')].find((b) => /Ripristina/.test(b.textContent)).click();
     await new Promise((r) => setTimeout(r, 0));
-    expect(apply.mock.calls[0][0]).toEqual({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: [], remoteKeys: {}, powerOffAt: null});
+    expect(apply.mock.calls[0][0]).toEqual({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: [], remoteKeys: {}, powerOffAt: null, cinemaFirst: false});
   });
 
   it('says so on a TV without root or Python', async () => {
@@ -139,7 +139,7 @@ describe('TV tools settings', () => {
 
   it('draft keeps the stored choice for rows not shown', () => {
     expect(tvToolsDraft(status(), {preload: {}, settings: {}, services: {}, memory: null}))
-      .toEqual({preloadOff: ['vudu', 'amazon'], settingsOff: ['adCookie'], servicesOff: ['contentminer'], keepInMemory: ['org.webosbrew.lounge.launcher'], remoteKeys: {}, powerOffAt: null});
+      .toEqual({preloadOff: ['vudu', 'amazon'], settingsOff: ['adCookie'], servicesOff: ['contentminer'], keepInMemory: ['org.webosbrew.lounge.launcher'], remoteKeys: {}, powerOffAt: null, cinemaFirst: false});
   });
 });
 
@@ -167,5 +167,16 @@ describe('updates', () => {
     expect(install).toHaveBeenCalledWith('org.bloomee.webos');
     expect(rows[1].textContent).toBe('Bloomee 0.3.5 · installata');
     vi.useRealTimers();
+  });
+});
+
+
+describe('TV tools: Cinema at power-on', () => {
+  it('keeps the stored choice when the switch is not shown, and follows the switch when it is', async () => {
+    const {tvToolsDraft} = await import('../src/js/tv-tools-settings.js');
+    const base = {preload: {}, settings: {}, services: {}, memory: null, keys: {}, consent: {}, powerOffAt: null};
+    expect(tvToolsDraft({conf: {cinemaFirst: true}}, Object.assign({}, base, {cinemaFirst: null})).cinemaFirst).toBe(true);
+    expect(tvToolsDraft({conf: {}}, Object.assign({}, base, {cinemaFirst: null})).cinemaFirst).toBe(false);
+    expect(tvToolsDraft({conf: {cinemaFirst: true}}, Object.assign({}, base, {cinemaFirst: {checked: false}})).cinemaFirst).toBe(false);
   });
 });

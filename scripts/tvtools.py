@@ -164,6 +164,7 @@ def load_conf():
         'keepInMemory': [a for a in c.get('keepInMemory') or [] if isinstance(a, type(u'')) or isinstance(a, str)],
         'remoteKeys': clean_keys(c.get('remoteKeys')),
         'powerOffAt': clean_time(c.get('powerOffAt')),
+        'cinemaFirst': c.get('cinemaFirst') is True,
     }
 
 
@@ -855,7 +856,7 @@ HOOKS = ['/var/lib/webosbrew/init.d/55-cinema-tvtools', '/var/lib/webosbrew/init
 UPDATE_JSON = os.path.join(RUN, 'update.json')
 WATCHDOG_PID = '/tmp/hbchannel-watchdog/watchdog.pid'
 EMPTY_CONF = {'preloadOff': [], 'settingsOff': [], 'servicesOff': [], 'keepInMemory': [], 'remoteKeys': {},
-              'powerOffAt': None}
+              'powerOffAt': None, 'cinemaFirst': False}
 UNINSTALL = {'misses': 0}
 
 
@@ -897,7 +898,7 @@ def self_uninstall():
     state = read_json(STATE, {})
     for step in (lambda: apply_memory(EMPTY_CONF, state), lambda: apply_preload(EMPTY_CONF, state),
                  lambda: restore_settings(EMPTY_CONF, state), lambda: apply_services(EMPTY_CONF, state),
-                 lambda: apply_keys(EMPTY_CONF, remove=True)):
+                 lambda: apply_keys(EMPTY_CONF, remove=True), lambda: apply_first_app(EMPTY_CONF)):
         try:
             step()
         except Exception as e:
@@ -916,6 +917,87 @@ def self_uninstall():
     log('tools removed')
 
 
+# ---- Cinema at power-on instead of Live TV --------------------------------------
+#
+# At power-on LG's bootd launches the app named in /var/lib/eim/lastinput
+# (physicalLastSourceAppId) at about 16 s, before any Homebrew Channel hook, and
+# at the end of its boot it opens the last input again over whatever is in
+# front. With Cinema named there and the input set to an HDMI with nothing
+# plugged in, the screen stays black instead of showing Live TV, and the end of
+# LG's boot leaves Cinema alone. A web app named there only gets an input
+# stand-in (com.webos.app.inputcommon, windowGroup true), so boot-launch.sh
+# launches the real Cinema as soon as Homebrew Channel starts it (on screen at
+# about 65 s instead of 110 s). The file is pinned read-only with a bind mount,
+# as LG rewrites it whenever an input is used (its rewrite then fails and EIM
+# keeps the real input in memory). Same idea as lgtv-webos-root-launcher and
+# lg-luma (PR #89).
+
+LASTINPUT = '/var/lib/eim/lastinput'
+PINNED = os.path.join(ROOT, 'lastinput.pinned')
+LG_LASTINPUT = os.path.join(ROOT, 'lastinput.lg')
+CINEMA_ID = 'org.webosbrew.lounge.launcher'
+DEFAULT_LASTINPUT = {'type': 'DTV', 'appId': 'com.webos.app.livetv', 'physicalLastSourceId': 'DTV',
+                     'physicalLastSourceAppId': 'com.webos.app.livetv'}
+
+
+def boot_input(inputs):
+    """(id, appId) of the first HDMI with nothing connected, from EIM's
+    getAllInputStatus devices; Live TV when every HDMI is in use."""
+    for d in inputs or []:
+        if isinstance(d, dict) and str(d.get('id', '')).startswith('HDMI_') and d.get('connected') is False and d.get('appId'):
+            return d['id'], d['appId']
+    return 'DTV', 'com.webos.app.livetv'
+
+
+def pinned_lastinput(input_id, app_id):
+    return {'type': input_id, 'appId': app_id, 'physicalLastSourceId': input_id, 'physicalLastSourceAppId': CINEMA_ID}
+
+
+def lastinput_pinned():
+    try:
+        return any(line.split()[1] == LASTINPUT for line in open('/proc/mounts'))
+    except Exception:
+        return False
+
+
+def write_plain(path, text, mode=0o644):
+    tmp = path + '.cinema'
+    with open(tmp, 'w') as f:
+        f.write(text)
+    os.chmod(tmp, mode)
+    os.rename(tmp, path)
+
+
+def apply_first_app(conf):
+    if conf.get('cinemaFirst'):
+        if not os.path.exists(LG_LASTINPUT):
+            current = read_json(LASTINPUT, None)
+            if isinstance(current, dict) and current.get('physicalLastSourceAppId') != CINEMA_ID:
+                write_plain(LG_LASTINPUT, json.dumps(current, separators=(',', ':')), 0o600)
+        if not os.path.exists(PINNED):
+            inputs = luna('luna://com.webos.service.eim/getAllInputStatus', {}).get('devices')
+            write_plain(PINNED, json.dumps(pinned_lastinput(*boot_input(inputs)), separators=(',', ':')))
+        if not lastinput_pinned():
+            text = open(PINNED).read()
+            if open(LASTINPUT).read() != text:
+                write_plain(LASTINPUT, text)
+            if subprocess.call(['mount', '--bind', PINNED, LASTINPUT]) == 0:
+                subprocess.call(['mount', '-o', 'remount,ro,bind', LASTINPUT])
+            log('power-on: Cinema on %s' % json.loads(text).get('physicalLastSourceId'))
+        return
+    if lastinput_pinned():
+        subprocess.call(['umount', LASTINPUT])
+    if os.path.exists(PINNED) or (read_json(LASTINPUT, {}) or {}).get('physicalLastSourceAppId') == CINEMA_ID:
+        lg = read_json(LG_LASTINPUT, None)
+        write_plain(LASTINPUT, json.dumps(lg if isinstance(lg, dict) else DEFAULT_LASTINPUT, separators=(',', ':')))
+        for path in (PINNED, LG_LASTINPUT):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        log('power-on: LG last input back')
+
+
 # ---- entry points -----------------------------------------------------------
 
 def apply_all(boot=False):
@@ -927,6 +1009,7 @@ def apply_all(boot=False):
     apply_settings(conf, state)
     apply_services(conf, state)
     apply_keys(conf)
+    apply_first_app(conf)
     log('applied')
 
 
