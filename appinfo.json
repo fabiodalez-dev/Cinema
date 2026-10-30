@@ -1,6 +1,6 @@
 {
   "id": "org.webosbrew.lounge.launcher",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "vendor": "webOS Homebrew",
   "type": "web",
   "main": "index.html",
