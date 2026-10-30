@@ -1355,6 +1355,37 @@ function paintCachedDock() {
   } catch (err) { /* refreshAll builds it */ }
 }
 
+// Right after power-on the TV is swapping and Cinema needs a few seconds to
+// read the dock, inputs and library. OK on the cached dock then opened its
+// first tile (Litefin) while the screen still looked idle. Until the home is
+// ready (at most START_GUARD_MAX_MS from the start) OK and pointer clicks are
+// held back with a word; arrows still move.
+const START_GUARD_MAX_MS = 8000;
+let homeReady = false;
+let startGuardTold = false;
+function startGuard(event) {
+  if (homeReady) return;
+  const isOk = event.type === 'keydown' && (event.keyCode === 13 || event.key === 'Enter');
+  const isClick = event.type === 'click' && event.isTrusted;
+  if (!isOk && !isClick) return;
+  if (settings.isVisible()) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (!startGuardTold) {
+    startGuardTold = true;
+    showToast('Cinema si sta preparando, un attimo…');
+  }
+}
+window.addEventListener('keydown', startGuard, true);
+window.addEventListener('click', startGuard, true);
+function markHomeReady() {
+  if (homeReady) return;
+  homeReady = true;
+  window.removeEventListener('keydown', startGuard, true);
+  window.removeEventListener('click', startGuard, true);
+}
+setTimeout(markHomeReady, START_GUARD_MAX_MS);
+
 // The clock ticks on the minute: a fixed 30 s interval showed the new minute
 // up to 30 s late.
 function startClock() {
@@ -1380,7 +1411,11 @@ async function init() {
   bindAppScrollHints();
   applyScreensaverSetting();
   settleHomeVolume();
-  await refreshAll();
+  try {
+    await refreshAll();
+  } finally {
+    markHomeReady();
+  }
   weather.start();
   // USB overrides and the terminal tile after the first paint; a change
   // repaints the dock.
@@ -1600,6 +1635,7 @@ try {
     openApp: function (id, params) {
       // A deep link (Litefin item) used a bare request: unanswered, it left
       // Live suspended and the title button apparently dead.
+      showToast('Apertura in corso…');
       return launchApp(id, params).catch(function () { return launchAppViaRoot(id, params); });
     },
     getProgrammeInfo: liveProgrammeInfo
