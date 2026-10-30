@@ -25,19 +25,19 @@ export const LAST_BACKUP_KEY = 'lounge.backup.last';
 
 export function backupWhen(iso) {
   const d = new Date(iso);
-  if (isNaN(d.getTime())) return 'an unknown date';
-  return d.toLocaleString([], {day: 'numeric', month: 'short', year: 'numeric',
+  if (isNaN(d.getTime())) return 'data sconosciuta';
+  return d.toLocaleString('it-IT', {day: 'numeric', month: 'short', year: 'numeric',
     hour: '2-digit', minute: '2-digit'});
 }
 
 export function lastBackupNote() {
   try {
     const last = JSON.parse(localStorage.getItem(LAST_BACKUP_KEY) || 'null');
-    if (last && last.savedAt) return 'Last backup: ' + backupWhen(last.savedAt) + ' (' + last.where + ').';
+    if (last && last.savedAt) return 'Ultimo backup: ' + backupWhen(last.savedAt) + ' (' + last.where + ').';
   } catch (err) {
     // No note yet.
   }
-  return 'No backup made from this TV yet.';
+  return 'Nessun backup ancora creato da questa TV.';
 }
 
 /**
@@ -103,17 +103,17 @@ export function listBackups(found) {
 }
 
 function backupKind(b) {
-  if (b.reason === 'before-restore') return 'before your last restore';
+  if (b.reason === 'before-restore') return 'prima dell’ultimo ripristino';
   if (b.reason === 'before-update') {
-    return 'before updating' + (b.data.updatedTo ? ' to ' + b.data.updatedTo : '');
+    return 'prima dell’aggiornamento' + (b.data.updatedTo ? ' a ' + b.data.updatedTo : '');
   }
-  return 'your backup';
+  return 'backup manuale';
 }
 
 /** One line to choose a backup by: when, what kind, where, which version. */
 export function backupLabel(b) {
   return backupWhen(b.data.savedAt) + ' · ' + backupKind(b) + ' · ' +
-    (b.where === 'USB' ? 'USB drive' : 'TV') + (b.appVersion ? ' · ' + b.appVersion : '');
+    (b.where === 'USB' ? 'USB' : 'TV') + (b.appVersion ? ' · ' + b.appVersion : '');
 }
 
 function madeBy(b) {
@@ -123,19 +123,19 @@ function madeBy(b) {
 /** How a backup relates to this version of Cinema, in words. */
 export function compatibilityNote(b) {
   if (!b.readable) {
-    return 'Made by a newer Cinema' + madeBy(b) + ' in a format this version can’t ' +
-      'read. Update Cinema to restore it.';
+    return 'Creato da una versione di Cinema più recente' + madeBy(b) + ', in un formato che questa ' +
+      'versione non sa leggere. Aggiorna Cinema per ripristinarlo.';
   }
   if (b.schema > CONFIG_SCHEMA_VERSION) {
-    return 'Made by a newer Cinema' + madeBy(b) + '. Settings this version doesn’t ' +
-      'have are kept but not used.';
+    return 'Creato da una versione di Cinema più recente' + madeBy(b) + '. Le impostazioni che questa ' +
+      'versione non ha vengono conservate ma non usate.';
   }
   if (b.schema < CONFIG_SCHEMA_VERSION) {
-    return 'Made by an older Cinema' + madeBy(b) + '. Its settings are updated for ' +
-      'this version.';
+    return 'Creato da una versione di Cinema precedente' + madeBy(b) + '. Le sue impostazioni vengono ' +
+      'adattate a questa versione.';
   }
-  return 'Made by Cinema' + (b.appVersion ? ' ' + b.appVersion : '') +
-    ', with the same settings as this version.';
+  return 'Creato da Cinema' + (b.appVersion ? ' ' + b.appVersion : '') +
+    ', con le stesse impostazioni di questa versione.';
 }
 
 function listSome(paths) {
@@ -144,20 +144,24 @@ function listSome(paths) {
 
 /** What a restore did (`result` from configFromBackup), for the status line. */
 export function restoreReport(b, result) {
-  let text = 'Restored the settings from ' + backupWhen(b.data.savedAt) + ' (' + backupKind(b) +
-    ', ' + (b.where === 'USB' ? 'USB drive' : 'TV') +
+  let text = 'Ripristinate le impostazioni del ' + backupWhen(b.data.savedAt) + ' (' + backupKind(b) +
+    ', ' + (b.where === 'USB' ? 'USB' : 'TV') +
     (b.appVersion ? ', Cinema ' + b.appVersion : '') + ').';
   const kept = result.skipped.filter(function (s) { return s.why === 'type'; })
     .map(function (s) { return s.path; });
   const unused = result.skipped.filter(function (s) { return s.why === 'newer'; })
     .map(function (s) { return s.path; });
   if (kept.length) {
-    text += ' ' + kept.length + (kept.length === 1 ? ' setting didn’t' : ' settings didn’t') +
-      ' fit this version and kept its current value: ' + listSome(kept) + '.';
+    text += ' ' + (kept.length === 1
+      ? '1 impostazione non è compatibile con questa versione e mantiene il valore attuale: '
+      : kept.length + ' impostazioni non sono compatibili con questa versione e mantengono il valore attuale: ') +
+      listSome(kept) + '.';
   }
   if (unused.length) {
-    text += ' ' + unused.length + (unused.length === 1 ? ' setting is' : ' settings are') +
-      ' from a newer version and not used here: ' + listSome(unused) + '.';
+    text += ' ' + (unused.length === 1
+      ? '1 impostazione arriva da una versione più recente e qui non viene usata: '
+      : unused.length + ' impostazioni arrivano da una versione più recente e qui non vengono usate: ') +
+      listSome(unused) + '.';
   }
   return text;
 }

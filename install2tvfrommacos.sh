@@ -20,7 +20,11 @@
 #   TV_IP          TV IP address (default: 192.168.0.79)
 #   DEVICE         ares device name (default: webos)
 #   SSH_KEY        SSH key name under ~/.ssh (default: webos_deploy)
-#   ROOT_PASSWORD  Root SSH password for first-time key setup (default: alpine)
+#   ROOT_PASSWORD  Root SSH password for first-time key setup (asked for when
+#                  unset and the key is not on the TV yet)
+#   REMOTE_TMP     Where the IPK is staged on the TV (default: a root-only
+#                  directory under /var/lib/launch-home-cinema; set
+#                  /media/developer/temp if the TV's appinstalld refuses it)
 #   LAUNCH         Launch app after install: 1 or 0 (default: 1)
 #   SETUP_DEVICE   Run ares-setup-device: 1 or 0 (default: 1)
 #   SSH_ONLY       Only set up SSH + ares device, skip build/install: 1 or 0 (default: 0)
@@ -30,7 +34,8 @@ set -euo pipefail
 TV_IP="${TV_IP:-192.168.0.79}"
 DEVICE="${DEVICE:-webos}"
 SSH_KEY="${SSH_KEY:-webos_deploy}"
-ROOT_PASSWORD="${ROOT_PASSWORD:-alpine}"
+ROOT_PASSWORD="${ROOT_PASSWORD:-}"
+REMOTE_TMP="${REMOTE_TMP:-/var/lib/launch-home-cinema/stage}"
 LAUNCH="${LAUNCH:-1}"
 SETUP_DEVICE="${SETUP_DEVICE:-1}"
 SSH_ONLY="${SSH_ONLY:-0}"
@@ -92,7 +97,7 @@ node20() {
 }
 
 ssh_tv() {
-	ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+	ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
 		-i "$SSH_KEY_PATH" "root@${TV_IP}" "$@"
 }
 
@@ -104,7 +109,7 @@ ssh_tv() {
 # pty (-tt) and use positional args so we can actually see (and verify) the
 # result.
 luna_send_tv() {
-	ssh -tt -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=no \
+	ssh -tt -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new \
 		-i "$SSH_KEY_PATH" "root@${TV_IP}" "$@" 2>&1
 }
 
@@ -154,7 +159,8 @@ luna_call_tv_cmd() {
 	if [[ "$LUNA_SEND_STYLE" == "pub" ]]; then
 		printf "/usr/bin/luna-send-pub -n 1 -w %s '%s' '%s'" "$wait_ms" "$uri" "$payload"
 	else
-		printf "luna-send -n 1 -w %s -f '%s' '%s'" "$wait_ms" "$uri" "$payload"
+		# This TV generation's luna-send prints nothing without -i and with stdin open.
+		printf "luna-send -i -n 1 -w %s -f '%s' '%s' </dev/null" "$wait_ms" "$uri" "$payload"
 	fi
 }
 
@@ -178,7 +184,7 @@ ensure_deploy_key() {
 
 install_key_on_tv() {
 	if ssh -o BatchMode=yes -o ConnectTimeout=5 -i "$SSH_KEY_PATH" \
-		-o StrictHostKeyChecking=no "root@${TV_IP}" "true" 2>/dev/null; then
+		-o StrictHostKeyChecking=accept-new "root@${TV_IP}" "true" 2>/dev/null; then
 		printf "  %s\n" "$(c_grn "SSH key auth already works")"
 		return
 	fi
@@ -186,12 +192,19 @@ install_key_on_tv() {
 	section "Installing SSH key on TV"
 	local pubkey
 	pubkey="$(cat "${SSH_KEY_PATH}.pub")"
+	# No password is kept in this file: it comes from ROOT_PASSWORD or is asked for.
+	if [[ -z "$ROOT_PASSWORD" ]]; then
+		[[ -t 0 ]] || die "ROOT_PASSWORD is not set and there is no terminal to ask for it (root@${TV_IP})."
+		read -r -s -p "  Root password of root@${TV_IP} (one-time key setup): " ROOT_PASSWORD
+		printf '\n'
+		[[ -n "$ROOT_PASSWORD" ]] || die "No root password given."
+	fi
 	local askpass
 	askpass="$(mktemp -t webos-root-askpass.XXXXXX)"
 	chmod 700 "$askpass"
 	printf '#!/bin/sh\nprintf "%%s" "%s"\n' "$ROOT_PASSWORD" >"$askpass"
 	DISPLAY=:0 SSH_ASKPASS="$askpass" SSH_ASKPASS_REQUIRE=force \
-		ssh -o StrictHostKeyChecking=no \
+		ssh -o StrictHostKeyChecking=accept-new \
 			-o PreferredAuthentications=password \
 			-o PubkeyAuthentication=no \
 			-p 22 "root@${TV_IP}" \
@@ -199,7 +212,7 @@ install_key_on_tv() {
 	rm -f "$askpass"
 
 	ssh -o BatchMode=yes -o ConnectTimeout=5 -i "$SSH_KEY_PATH" \
-		-o StrictHostKeyChecking=no "root@${TV_IP}" "true" \
+		-o StrictHostKeyChecking=accept-new "root@${TV_IP}" "true" \
 		|| die "Could not authenticate to root@${TV_IP} with $SSH_KEY_PATH"
 	printf "  %s\n" "$(c_grn "SSH key installed on TV")"
 }
@@ -249,7 +262,9 @@ install_ipk_ssh() {
 	local ipk="$1" base remote_dir remote_ipk payload version install_cmd log_file
 	local max_wait=180 elapsed=0 output appinfo_path icon_path expected_icon_bytes
 	base="$(basename "$ipk")"
-	remote_dir="/media/developer/temp"
+	# Root-only (0700): /media/developer/temp is writable by every app, which
+	# could swap the package before appinstalld (root) reads it.
+	remote_dir="$REMOTE_TMP"
 	remote_ipk="${remote_dir}/${base}"
 	log_file="/tmp/lounge-install-${base}.log"
 	appinfo_path="/media/developer/apps/usr/palm/applications/${APP_ID}/appinfo.json"
@@ -266,8 +281,8 @@ install_ipk_ssh() {
 	# every process with the app folder in its command line: the voice
 	# service (voice-run.sh, voice_daemon.py) and the SSH shell running it.
 
-	ssh_tv "rm -rf '${remote_dir}' && mkdir -p '${remote_dir}' && chmod 777 '${remote_dir}'"
-	scp -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=no \
+	ssh_tv "rm -rf '${remote_dir}' && mkdir -p '${remote_dir}' && chmod 700 '${remote_dir}'"
+	scp -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new \
 		-i "$SSH_KEY_PATH" "$ipk" "root@${TV_IP}:${remote_ipk}"
 
 	ssh_tv "restart appinstalld" >/dev/null 2>&1 || true
@@ -334,8 +349,8 @@ install_ipk() {
 launch_app_ssh() {
 	local payload output
 	payload="$(printf '{"id":"%s"}' "$APP_ID")"
-	output="$(luna_send_tv "$(luna_call_tv_cmd 'luna://com.webos.applicationManager/launch' "$payload")")"
-	printf '%s\n' "$output" | grep -q '"returnValue":true' \
+	output="$(luna_send_tv "$(luna_call_tv_cmd 'luna://com.webos.applicationManager/launch' "$payload" 4000)")"
+	printf '%s\n' "$output" | grep -qE '"returnValue": ?true' \
 		|| die "SSH launch failed for ${APP_ID}. Output: $output"
 }
 

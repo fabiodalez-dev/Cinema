@@ -13,41 +13,47 @@ const {verifyIpk} = require('./verify-ipk');
 const root = path.join(__dirname, '..');
 const dist = path.join(root, 'dist');
 
-// Dev / source-only assets that must not ship in the .ipk.
-const PACK_EXCLUDE = new Set([
-  'icon-source.png',
-  'icon-source-clay.png',
+// Dev / source-only assets that must not ship in the .ipk: paths under
+// assets/, matched by assetExcluded(). Kept in the repo, left out of the package.
+const ASSET_EXCLUDE = [
+  /^icon-source(-clay)?\.png$/,
   // Older icon generations — appinfo uses v8 only.
-  'icon-60-v4.png',
-  'icon-80-v4.png',
-  'icon-130-v4.png',
-  'icon-60-v5.png',
-  'icon-80-v5.png',
-  'icon-130-v5.png',
-  'icon-60-v6.png',
-  'icon-80-v6.png',
-  'icon-130-v6.png',
-  'icon-60-v7.png',
-  'icon-80-v7.png',
-  'icon-130-v7.png',
-  // assets/backgrounds/1920/: Performance-mode wallpapers, downloaded from
-  // this repo on demand (see LITE_WALLPAPER_BASE in backgrounds.js), so the
-  // IPK only carries the 4K originals.
-  '1920'
-]);
+  /^icon-(60|80|130)-v[4-7]\.png$/,
+  // Byte-identical copies of the v8 icons appinfo points at. icon.png stays:
+  // install2tvfrommacos.sh checks it on the TV.
+  /^icon-(60|80|130|large|mini)\.png$/,
+  // assets/backgrounds/*.jpg: the 4K originals. The IPK carries the 1920px set
+  // (assets/backgrounds/1920/) and these are downloaded from this repo via
+  // jsDelivr when performance mode is off (HD_WALLPAPER_BASE in backgrounds.js).
+  /^backgrounds\/[^/]+\.jpg$/,
+  // Ambient tracks: streamed from jsDelivr on demand (MUSIC_BASE in
+  // builtin-music.js); the manifest still ships.
+  /^music\/.*\.mp3$/,
+  // Fonts ship as WOFF2; the TTF sources stay in the repo.
+  /^fonts\/.*\.ttf$/
+];
 
-function copyRecursive(src, dest) {
+function assetExcluded(rel) {
+  const name = rel.split(path.sep).join('/');
+  return ASSET_EXCLUDE.some(function (re) { return re.test(name); });
+}
+
+/**
+ * Copy a file or tree. `skip(rel)` (optional) is asked for each entry with its
+ * path relative to `src`, and drops it when true.
+ */
+function copyRecursive(src, dest, skip, rel) {
   if (!fs.existsSync(src)) return;
+  const here = rel || '';
+  if (here && skip && skip(here)) return;
   const stat = fs.statSync(src);
   if (stat.isDirectory()) {
     fs.mkdirSync(dest, {recursive: true});
     for (const entry of fs.readdirSync(src)) {
-      if (PACK_EXCLUDE.has(entry)) continue;
-      copyRecursive(path.join(src, entry), path.join(dest, entry));
+      copyRecursive(path.join(src, entry), path.join(dest, entry), skip, here ? here + '/' + entry : entry);
     }
     return;
   }
-  if (PACK_EXCLUDE.has(path.basename(src))) return;
   fs.mkdirSync(path.dirname(dest), {recursive: true});
   fs.copyFileSync(src, dest);
 }
@@ -93,9 +99,7 @@ async function build() {
     .replace('src="main.js"', 'src="main.js?v=' + cacheTag(path.join(dist, 'main.js')) + '"');
   fs.writeFileSync(indexPath, indexHtml);
   copyRecursive(path.join(root, 'src/styles'), path.join(dist, 'styles'));
-  copyRecursive(path.join(root, 'assets'), path.join(dist, 'assets'));
-  // Cinema's bundled fallback must be available without a network.
-  copyRecursive(path.join(root, 'assets/backgrounds/1920/mountain-sunset.jpg'), path.join(dist, 'assets/backgrounds/1920/mountain-sunset.jpg'));
+  copyRecursive(path.join(root, 'assets'), path.join(dist, 'assets'), assetExcluded);
   fs.copyFileSync(path.join(root, 'version.md'), path.join(dist, 'version.md'));
 
   // Root Home-button watcher + boot-on-start helpers (started via settings / init.d).
@@ -119,8 +123,12 @@ async function build() {
     'tvtools.py',
     'update-app.py',
     'failsafe-check.sh',
+    // Homebrew Channel watchdog, installed as a boot hook by enable-tvtools.sh.
+    'hbchannel-watchdog.sh',
     'enable-tvtools.sh',
-    'disable-tvtools.sh'
+    'disable-tvtools.sh',
+    // Device-only restore: hooks off, Litefin's HTML back, launcher removed.
+    'restore.sh'
   ].forEach(function (name) {
     const src = path.join(root, 'scripts', name);
     if (fs.existsSync(src)) {
@@ -204,7 +212,8 @@ async function main() {
       throw new Error('ares-package did not produce ' + ipkPath);
     }
     verifyIpk(ipkPath);
-    console.log('Packaged IPK in dist/ (file dates verified)');
+    const mb = (fs.statSync(ipkPath).size / (1024 * 1024)).toFixed(2);
+    console.log('Packaged ' + path.basename(ipkPath) + ' (' + mb + ' MB, file dates and contents verified)');
   }
 }
 

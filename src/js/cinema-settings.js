@@ -21,7 +21,34 @@ export function mountCinemaSettings(panel,api){
   const media=node('section','settings-section');media.appendChild(node('h3','','Jellyfin'));
   const connection=node('div','cinema-connection');connection.dataset.connection='jellyfin';
   const account=node('strong','','Collegamento Jellyfin');const detail=node('p','','Controllo del server…');connection.appendChild(account);connection.appendChild(detail);media.appendChild(connection);
-  function paint(){const info=api.getInfo();account.textContent=info.online?'Collegato a Jellyfin':info.server?'Jellyfin non raggiungibile':'Jellyfin da collegare';connection.dataset.state=info.online?'online':'offline';detail.textContent=[info.userName,info.server].filter(Boolean).join(' · ')||(info.cached?'La cache è disponibile. Puoi continuare ad aprire le app.':'Apri il tuo client Jellyfin per gestire l’accesso.');}
+  const STATES={unconfigured:'Jellyfin da collegare',offline:'Jellyfin non raggiungibile',unauthorized:'Accesso Jellyfin scaduto: collega di nuovo',online:'Collegato a Jellyfin'};
+  function paint(){const info=api.getInfo();const state=STATES[info.state]?info.state:info.online?'online':info.server?'offline':'unconfigured';account.textContent=STATES[state];connection.dataset.state=state;detail.textContent=state==='unauthorized'?'Usa Quick Connect qui sotto per accedere di nuovo.':[info.userName,info.server].filter(Boolean).join(' · ')||(info.cached?'La cache è disponibile. Puoi continuare ad aprire le app.':'Collega il server con Quick Connect: l’accesso resta solo sulla TV.');if(serverInput&&!serverInput.value&&info.serverUrl)serverInput.value=info.serverUrl;}
+  // Quick Connect: server address, a code to confirm in any Jellyfin client, done.
+  let serverInput=null;
+  if(api.quickConnect){
+   const quick=node('div','cinema-quick-connect');quick.dataset.quickConnect='jellyfin';
+   const row=node('div','settings-row');row.appendChild(node('span','','Indirizzo server'));
+   serverInput=document.createElement('input');serverInput.type='url';serverInput.className='focusable';serverInput.placeholder='http://192.168.1.10:8096';serverInput.setAttribute('aria-label','Indirizzo del server Jellyfin');serverInput.dataset.quickServer='true';serverInput.autocomplete='off';serverInput.spellcheck=false;
+   // As the other Settings text fields: OK (or a click) opens the webOS keyboard, blur closes it.
+   serverInput.readOnly=true;serverInput.dataset.tvKeyboardGated='1';
+   serverInput.addEventListener('click',function(e){if(serverInput.readOnly){e.preventDefault();serverInput.readOnly=false;serverInput.dataset.tvEdit='1';serverInput.focus();}});
+   serverInput.addEventListener('blur',function(){serverInput.readOnly=true;delete serverInput.dataset.tvEdit;});
+   serverInput.addEventListener('keydown',function(e){if(e.key==='Enter'||e.keyCode===13){e.preventDefault();serverInput.blur();}});
+   row.appendChild(serverInput);quick.appendChild(row);
+   const code=node('div','cinema-quick-code');code.setAttribute('aria-live','assertive');const quickStatus=node('p','cinema-quick-status');quickStatus.setAttribute('role','status');
+   const connect=node('button','settings-button focusable','Collega con Quick Connect');connect.type='button';connect.dataset.focusIndex='946';connect.dataset.quickConnectButton='true';
+   connect.addEventListener('click',async function(){
+    const server=serverInput.value.trim();
+    if(!/^https?:\/\/[^\s]+$/.test(server)){quickStatus.textContent='Scrivi l’indirizzo completo del server, ad esempio http://192.168.1.10:8096.';return;}
+    connect.disabled=true;code.textContent='';quickStatus.textContent='Richiesta del codice…';
+    try{
+     const result=await api.quickConnect(server,function(c){code.textContent=c;quickStatus.textContent='Apri Jellyfin su telefono o computer: Impostazioni → Quick Connect e inserisci questo codice.';});
+     code.textContent='';quickStatus.textContent='Collegato come '+(result.userName||'utente Jellyfin')+'.';
+    }catch(err){code.textContent='';quickStatus.textContent=(err&&err.message)||'Collegamento non riuscito.';}
+    finally{connect.disabled=false;paint();}
+   });
+   quick.appendChild(code);quick.appendChild(quickStatus);quick.appendChild(connect);media.appendChild(quick);
+  }
   paint();media.appendChild(toggle('Contenuti nella Home','jellyfin'));media.appendChild(toggle('Sfondi dalla libreria','backdrops'));
   const clientRow=node('div','settings-row');clientRow.appendChild(node('span','','App Jellyfin preferita'));const clientSelect=document.createElement('select');clientSelect.className='focusable';clientSelect.dataset.cinemaClient='true';clientSelect.setAttribute('aria-label','App Jellyfin preferita');[{id:'auto',name:'Automatico'}].concat(MEDIA_CLIENTS).forEach(function(c){const o=document.createElement('option');o.value=c.id;o.textContent=c.name+(c.webos>5?' · webOS '+c.webos+'+':'');clientSelect.appendChild(o);});clientSelect.value=normalizeMediaClient(api.prefs.client);clientRow.appendChild(clientSelect);media.appendChild(clientRow);
   const actions=node('div','cinema-settings-actions');

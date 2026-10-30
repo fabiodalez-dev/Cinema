@@ -294,7 +294,7 @@ function createProviderPicker(focusIndex, onChange) {
   const wrap = document.createElement('div');
   wrap.className = 'ai-provider-pick';
   wrap.setAttribute('role', 'radiogroup');
-  wrap.setAttribute('aria-label', 'AI assistant');
+  wrap.setAttribute('aria-label', 'Assistente vocale');
 
   function makeCard(value, name, sub, indexOffset) {
     const btn = document.createElement('button');
@@ -314,9 +314,9 @@ function createProviderPicker(focusIndex, onChange) {
     return btn;
   }
 
-  const grokBtn = makeCard('xai', 'Grok', 'xAI · voice, chat, and spoken answers', 0);
-  const gemBtn = makeCard('gemini', 'Gemini', 'Google · speech and chat answers', 1);
-  const orBtn = makeCard('openrouter', 'OpenRouter', 'Many models · chat answers', 2);
+  const grokBtn = makeCard('xai', 'Grok', 'xAI · voce, conversazione e risposte parlate', 0);
+  const gemBtn = makeCard('gemini', 'Gemini', 'Google · ascolto e risposte in chat', 1);
+  const orBtn = makeCard('openrouter', 'OpenRouter', 'Tanti modelli · risposte in chat', 2);
   wrap.appendChild(grokBtn);
   wrap.appendChild(gemBtn);
   wrap.appendChild(orBtn);
@@ -476,7 +476,7 @@ export function createSettingsPanel(panel, getConfig, options) {
       body.innerHTML = '';
       const msg = document.createElement('p');
       msg.className = 'settings-hint';
-      msg.textContent = message || 'Could not load settings. Press Close and try again.';
+      msg.textContent = message || 'Impossibile caricare le impostazioni. Premi Chiudi e riprova.';
       body.appendChild(msg);
     }
   }
@@ -517,14 +517,14 @@ export function createSettingsPanel(panel, getConfig, options) {
       opening = false;
       // If render bailed early without sections, keep a usable shell.
       if (!panel.querySelector('.settings-section') && !panel.querySelector('.settings-tabs')) {
-        showErrorState('Settings did not finish loading. Close and open again.');
+        showErrorState('Le impostazioni non si sono caricate del tutto. Chiudi e riapri.');
       }
       if (options.onRendered) options.onRendered();
     }).catch(function (err) {
       console.error(err);
       if (!visible || gen !== renderGen) return;
       opening = false;
-      showErrorState('Could not load settings. Close and try again.');
+      showErrorState('Impossibile caricare le impostazioni. Chiudi e riprova.');
       if (options.onRendered) options.onRendered();
     });
   }
@@ -731,7 +731,7 @@ export function createSettingsPanel(panel, getConfig, options) {
       // Not shown on the home row (see apps.js): say why, so it can go.
       const isCustom = customApps.some(function (entry) { return entry && entry.id === appId; });
       if (!isCustom && !isAppInstalled(installedCatalog, appId)) {
-        title.textContent += ' \u2014 not installed on this TV';
+        title.textContent += ' \u2014 non installata su questa TV';
         row.classList.add('is-missing');
       }
 
@@ -1061,7 +1061,7 @@ export function createSettingsPanel(panel, getConfig, options) {
     const aiStatusHint = document.createElement('p');
     aiStatusHint.className = 'settings-hint';
     aiStatusHint.textContent =
-      'Hold Voice on the Magic Remote to talk. Pick Grok, Gemini, or OpenRouter, add a key, then Save.';
+      'Tieni premuto il tasto Voce del Magic Remote per parlare. Scegli Grok, Gemini o OpenRouter, inserisci una chiave e poi Salva.';
     aiStatusSection.appendChild(aiStatusHint);
     aiPane.appendChild(aiStatusSection);
 
@@ -1095,8 +1095,8 @@ export function createSettingsPanel(panel, getConfig, options) {
     aiKeySection.className = 'settings-section';
     aiKeySection.innerHTML = '<h3>Chiavi di accesso</h3>';
     aiAuthModeSelect = createOptionStepper('', 1990, [
-      {value: 'API_KEY', label: 'Grok API key'},
-      {value: 'SUPERGROK_OAUTH', label: 'SuperGrok sign-in'}
+      {value: 'API_KEY', label: 'Chiave API Grok'},
+      {value: 'SUPERGROK_OAUTH', label: 'Accesso SuperGrok'}
     ], 'API_KEY', function () {
       syncAuthModeUi();
       if (isSuperGrokMode()) paintOauthFromStatus({}, aiLoadedConfig);
@@ -1109,7 +1109,7 @@ export function createSettingsPanel(panel, getConfig, options) {
     aiKeySection.appendChild(aiGrokUsing);
     const authHint = document.createElement('p');
     authHint.className = 'settings-hint';
-    authHint.textContent = 'Get a key at console.x.ai — stored only on this TV.';
+    authHint.textContent = 'Ottieni una chiave su console.x.ai: resta salvata solo su questa TV.';
     aiKeySection.appendChild(authHint);
 
     const oauthBox = document.createElement('div');
@@ -1128,7 +1128,7 @@ export function createSettingsPanel(panel, getConfig, options) {
     aiOauthModal.setAttribute('role', 'dialog');
     aiOauthModal.setAttribute('aria-modal', 'true');
     aiOauthModal.setAttribute('aria-hidden', 'true');
-    aiOauthModal.setAttribute('aria-label', 'SuperGrok sign-in');
+    aiOauthModal.setAttribute('aria-label', 'Accesso SuperGrok');
     aiOauthModal.addEventListener('click', function (event) {
       event.preventDefault();
       event.stopPropagation();
@@ -1215,17 +1215,17 @@ export function createSettingsPanel(panel, getConfig, options) {
       if (kind === 'signed-in') {
         aiGrokUsing.className = 'ai-using-badge is-supergrok';
         aiGrokUsing.textContent = email
-          ? ('Using SuperGrok · ' + email)
-          : 'Using SuperGrok';
+          ? ('Accesso con SuperGrok · ' + email)
+          : 'Accesso con SuperGrok';
       } else if (kind === 'expired') {
         aiGrokUsing.className = 'ai-using-badge is-warn';
-        aiGrokUsing.textContent = 'SuperGrok session expired — sign in again';
+        aiGrokUsing.textContent = 'Sessione SuperGrok scaduta: accedi di nuovo';
       } else if (kind === 'pending') {
         aiGrokUsing.className = 'ai-using-badge is-warn';
-        aiGrokUsing.textContent = 'Waiting for SuperGrok approval';
+        aiGrokUsing.textContent = 'In attesa della conferma SuperGrok';
       } else if (kind === 'signed-out') {
         aiGrokUsing.className = 'ai-using-badge is-warn';
-        aiGrokUsing.textContent = 'SuperGrok — not signed in';
+        aiGrokUsing.textContent = 'SuperGrok: accesso non effettuato';
       } else {
         aiGrokUsing.className = 'ai-using-badge is-apikey';
         aiGrokUsing.textContent = "Accesso con chiave Grok";
@@ -1270,7 +1270,7 @@ export function createSettingsPanel(panel, getConfig, options) {
       const url = uri || 'https://accounts.x.ai/oauth2/device';
       aiOauthLocalCode = code || aiOauthLocalCode || '';
       aiOauthLocalUri = url;
-      aiOauthStatus.textContent = 'Waiting for phone approval — keep this QR on screen';
+      aiOauthStatus.textContent = 'In attesa della conferma dal telefono: lascia il QR sullo schermo';
       aiOauthStatus.className = 'settings-hint';
       if (aiOauthCode) {
         aiOauthCode.hidden = false;
@@ -1278,8 +1278,8 @@ export function createSettingsPanel(panel, getConfig, options) {
       }
       if (aiOauthHint) {
         aiOauthHint.hidden = false;
-        aiOauthHint.textContent = 'Scan with your phone, or open ' + url +
-          ' and enter the code. This stays open until you approve or cancel.';
+        aiOauthHint.textContent = 'Inquadra con il telefono oppure apri ' + url +
+          ' e inserisci il codice. Resta aperto finché non confermi o annulli.';
       }
       showOauthQr(url);
       if (aiOauthModal) {
@@ -1301,8 +1301,8 @@ export function createSettingsPanel(panel, getConfig, options) {
       if (authHint) {
         authHint.hidden = !grok;
         authHint.textContent = heavy
-          ? 'SuperGrok is an account sign-in (same as grok login). Green = sign in, red = sign out. The Grok API key is not used while SuperGrok is signed in.'
-          : 'Using a Grok API key from console.x.ai. Switch Grok account to SuperGrok sign-in if you have a SuperGrok subscription instead.';
+          ? 'SuperGrok è l’accesso con il tuo account (come grok login). Verde = accedi, rosso = esci. Finché SuperGrok è connesso, la chiave API Grok non viene usata.'
+          : 'Accesso con una chiave API Grok di console.x.ai. Se invece hai un abbonamento SuperGrok, imposta Account Grok su Accesso SuperGrok.';
       }
       if (authRow) authRow.hidden = !grok;
       if (!heavy && grok) paintGrokUsing('apikey');
@@ -1364,8 +1364,8 @@ export function createSettingsPanel(panel, getConfig, options) {
         syncAuthModeUi();
       }
       aiOauthStatus.textContent = email
-        ? ('Signed in as ' + email + ' — voice uses SuperGrok, not the API key')
-        : 'Signed in — voice uses SuperGrok, not the API key';
+        ? ('Connesso come ' + email + ': la voce usa SuperGrok, non la chiave API')
+        : 'Connesso: la voce usa SuperGrok, non la chiave API';
       aiOauthStatus.className = 'settings-hint ai-status-ok';
       hideOauthQr();
       setOauthActionState('signed-in');
@@ -1411,7 +1411,7 @@ export function createSettingsPanel(panel, getConfig, options) {
           hideOauthQr();
           aiOauthStatus.textContent = err
             ? ('SuperGrok: ' + err)
-            : 'SuperGrok: sign-in did not complete';
+            : 'SuperGrok: accesso non completato';
           aiOauthStatus.className = 'settings-hint ai-status-warn';
           setOauthActionState('signed-out');
           paintGrokUsing('signed-out');
@@ -1432,8 +1432,8 @@ export function createSettingsPanel(panel, getConfig, options) {
         aiOauthStatus.textContent = err
           ? ('SuperGrok: ' + err)
           : (tokenExpired
-            ? 'SuperGrok session expired — sign in again to keep using SuperGrok'
-            : 'Not signed in — use Sign in (green) or a Grok API key instead');
+            ? 'Sessione SuperGrok scaduta: accedi di nuovo per continuare a usarlo'
+            : 'Accesso non effettuato: usa Accedi (verde) oppure una chiave API Grok');
         aiOauthStatus.className = (err || tokenExpired)
           ? 'settings-hint ai-status-warn'
           : 'settings-hint';
@@ -1459,7 +1459,7 @@ export function createSettingsPanel(panel, getConfig, options) {
           const signedIn = !!(status && status.oauthSignedIn) && !tokenExpired;
           paintOauthFromStatus(status || {}, aiLoadedConfig);
           if (signedIn && !stillWaiting && (!aiOauthInProgress || aiOauthSawPending)) {
-            if (options.onToast) options.onToast('SuperGrok signed in');
+            if (options.onToast) options.onToast('Accesso SuperGrok effettuato');
             aiOauthInProgress = false;
             loadAiTab();
           }
@@ -1475,7 +1475,7 @@ export function createSettingsPanel(panel, getConfig, options) {
       cancelSuperGrokLogin().then(function () {
         loadAiTab();
       }).catch(function (err) {
-        if (options.onToast) options.onToast((err && err.message) || 'Cancel failed');
+        if (options.onToast) options.onToast((err && err.message) || 'Annullamento non riuscito');
         loadAiTab();
       });
     }
@@ -1483,7 +1483,7 @@ export function createSettingsPanel(panel, getConfig, options) {
     aiOauthSignInBtn.addEventListener('click', function () {
       const pending = aiLoadedConfig && aiLoadedConfig.oauth_pending;
       if (aiOauthInProgress ||
-          aiOauthSignInBtn.textContent.indexOf('Cancel') === 0 ||
+          aiOauthSignInBtn.textContent.indexOf('Annulla') === 0 ||
           isOauthPendingWaiting(pending)) {
         cancelOauthLogin();
         return;
@@ -1498,14 +1498,14 @@ export function createSettingsPanel(panel, getConfig, options) {
         showOauthPending(code, uri);
         aiOauthSignInBtn.textContent = "Annulla accesso";
         if (code) aiOauthSawPending = true;
-        if (options.onToast) options.onToast('SuperGrok code: ' + code);
+        if (options.onToast) options.onToast('Codice SuperGrok: ' + code);
         pollOauthUntilDone();
       }).catch(function (err) {
         aiOauthInProgress = false;
         aiOauthSignInBtn.disabled = false;
         hideOauthQr();
         if (options.onToast) {
-          options.onToast((err && err.message) || 'Could not start SuperGrok sign-in');
+          options.onToast((err && err.message) || 'Impossibile avviare l’accesso SuperGrok');
         }
       });
     });
@@ -1522,15 +1522,15 @@ export function createSettingsPanel(panel, getConfig, options) {
         aiOauthImportBtn.disabled = false;
         if (options.onToast) {
           options.onToast(res && res.email
-            ? ('Imported SuperGrok for ' + res.email)
-            : 'Imported SuperGrok session');
+            ? ('Accesso SuperGrok importato per ' + res.email)
+            : 'Sessione SuperGrok importata');
         }
         loadAiTab();
       }).catch(function (err) {
         aiOauthImportBtn.disabled = false;
         if (options.onToast) {
           options.onToast((err && err.message) ||
-            'Copy ~/.grok/auth.json to /home/root/.grok/auth.json on the TV');
+            'Copia ~/.grok/auth.json in /home/root/.grok/auth.json sulla TV');
         }
       });
     });
@@ -1542,38 +1542,38 @@ export function createSettingsPanel(panel, getConfig, options) {
             aiAuthModeSelect.setValue('API_KEY');
           }
         }
-        if (options.onToast) options.onToast('Signed out of SuperGrok');
+        if (options.onToast) options.onToast('Uscita da SuperGrok effettuata');
         loadAiTab();
       }).catch(function (err) {
-        if (options.onToast) options.onToast((err && err.message) || 'Sign out failed');
+        if (options.onToast) options.onToast((err && err.message) || 'Uscita non riuscita');
       });
     });
 
-    xaiRow = makeKeyRow('Grok API key', 2001, 'xai-…');
+    xaiRow = makeKeyRow('Chiave API Grok', 2001, 'xai-…');
     aiApiKeyInput = xaiRow.input;
     aiApiKeyShowBtn = xaiRow.showBtn;
     aiKeySection.appendChild(xaiRow.row);
     aiApiKeyHint = document.createElement('p');
     aiApiKeyHint.className = 'settings-hint';
-    aiApiKeyHint.textContent = 'Get a key at console.x.ai — stored only on this TV. Leave blank to keep the current key.';
+    aiApiKeyHint.textContent = 'Ottieni una chiave su console.x.ai: resta salvata solo su questa TV. Lascia vuoto per mantenere quella attuale.';
     aiKeySection.appendChild(aiApiKeyHint);
 
-    gemRow = makeKeyRow('Gemini key', 2003, 'AIza…');
+    gemRow = makeKeyRow('Chiave Gemini', 2003, 'AIza…');
     aiGeminiKeyInput = gemRow.input;
     aiGeminiKeyShowBtn = gemRow.showBtn;
     aiKeySection.appendChild(gemRow.row);
     aiGeminiKeyHint = document.createElement('p');
     aiGeminiKeyHint.className = 'settings-hint';
-    aiGeminiKeyHint.textContent = 'Optional. Google AI Studio key (usually starts with AIza). Leave blank to keep current.';
+    aiGeminiKeyHint.textContent = 'Facoltativa. Chiave di Google AI Studio (di solito inizia con AIza). Lascia vuoto per mantenere quella attuale.';
     aiKeySection.appendChild(aiGeminiKeyHint);
 
-    orRow = makeKeyRow('OpenRouter key', 2005, 'sk-or-…');
+    orRow = makeKeyRow('Chiave OpenRouter', 2005, 'sk-or-…');
     aiOpenRouterKeyInput = orRow.input;
     aiOpenRouterKeyShowBtn = orRow.showBtn;
     aiKeySection.appendChild(orRow.row);
     aiOpenRouterKeyHint = document.createElement('p');
     aiOpenRouterKeyHint.className = 'settings-hint';
-    aiOpenRouterKeyHint.textContent = 'Get a key at openrouter.ai — stored only on this TV. Leave blank to keep current.';
+    aiOpenRouterKeyHint.textContent = 'Ottieni una chiave su openrouter.ai: resta salvata solo su questa TV. Lascia vuoto per mantenere quella attuale.';
     aiKeySection.appendChild(aiOpenRouterKeyHint);
 
     aiApiKeyShowBtn.addEventListener('click', function () {
@@ -1695,13 +1695,13 @@ export function createSettingsPanel(panel, getConfig, options) {
       if (providerHint) {
         if (gemini) {
           providerHint.textContent =
-            'Gemini listens and answers with the models below. Spoken replies use Gemini TTS.';
+            'Gemini ascolta e risponde con i modelli qui sotto. Le risposte parlate usano la sintesi vocale di Gemini.';
         } else if (openrouter) {
           providerHint.textContent =
-            'OpenRouter listens with the speech-to-text model you pick, then answers with the chat model.';
+            'OpenRouter ascolta con il modello di riconoscimento vocale che scegli e risponde con il modello di conversazione.';
         } else {
           providerHint.textContent =
-            'Grok listens, answers, and can speak. Choose SuperGrok sign-in or a Grok API key under Grok account.';
+            'Grok ascolta, risponde e può parlare. Scegli Accesso SuperGrok oppure una chiave API Grok sotto Account Grok.';
         }
       }
       if (aiVoiceModelRow) aiVoiceModelRow.hidden = !grok;
@@ -1726,8 +1726,8 @@ export function createSettingsPanel(panel, getConfig, options) {
             (aiLoadedConfig.xai_api_key_masked && aiLoadedConfig.api_key_configured)));
           const xaiMasked = (aiLoadedConfig && aiLoadedConfig.xai_api_key_masked) || '';
           aiApiKeyHint.textContent = xaiConfigured
-            ? ('Grok API key on file: ' + xaiMasked + ' — leave blank to keep it.')
-            : 'Get a key at console.x.ai — stored only on this TV.';
+            ? ('Chiave API Grok salvata: ' + xaiMasked + '. Lascia vuoto per mantenerla.')
+            : 'Ottieni una chiave su console.x.ai: resta salvata solo su questa TV.';
         }
       }
       if (gemRow && gemRow.row) gemRow.row.hidden = !gemini;
@@ -1769,18 +1769,18 @@ export function createSettingsPanel(panel, getConfig, options) {
     const aiPowerHint = document.createElement('p');
     aiPowerHint.className = 'settings-hint';
     aiPowerHint.textContent =
-      'Answers the Voice button on the Magic Remote with Grok, Gemini or OpenRouter. ' +
-      'It runs in the background as root (Homebrew Channel). Turning it off hands the ' +
-      'button back to LG and keeps your keys and sign-in.';
+      'Risponde al tasto Voce del Magic Remote con Grok, Gemini o OpenRouter. ' +
+      'Gira in sottofondo come root (Homebrew Channel). Spegnendolo, il tasto torna a LG ' +
+      'e chiavi e accessi restano salvati.';
     aiPowerSection.appendChild(aiPowerHint);
 
     voiceOn = !!(config.launcher && config.launcher.voiceEnabled);
 
     function paintVoicePower(message, kind) {
       aiPowerBtn.textContent = voiceBusy
-        ? (voiceOn ? 'Turning off…' : 'Turning on…')
-        : (voiceOn ? 'Turn off' : 'Turn on');
-      aiPowerStatus.textContent = message || (voiceOn ? 'On' : "Disattivato");
+        ? (voiceOn ? 'Spegnimento…' : 'Accensione…')
+        : (voiceOn ? 'Spegni' : 'Accendi');
+      aiPowerStatus.textContent = message || (voiceOn ? 'Attivo' : "Disattivato");
       aiPowerStatus.className = 'settings-hint ai-status-line ' +
         (kind === 'err' ? 'ai-status-err' : (voiceOn ? 'ai-status-ok' : 'ai-status-warn'));
       [aiKeySection, aiProviderSection, aiVoiceSection, aiStatusSection].forEach(function (el) {
@@ -1793,11 +1793,11 @@ export function createSettingsPanel(panel, getConfig, options) {
     function paintOtherVoice(state) {
       aiOtherVoice.hidden = !state;
       aiOtherVoice.textContent = state === 'running'
-        ? 'VoxRelay is also running on this TV. Both answer the Voice button, so ' +
-          'answers can clash. Cinema leaves it alone: turn one of them off.'
+        ? 'Su questa TV è in esecuzione anche VoxRelay. Entrambi rispondono al tasto Voce, ' +
+          'quindi le risposte possono sovrapporsi. Cinema non lo tocca: spegnine uno dei due.'
         : (state === 'installed'
-          ? 'VoxRelay is also installed on this TV. If it runs, both answer the Voice ' +
-            'button. Cinema leaves it alone.'
+          ? 'Su questa TV è installato anche VoxRelay. Se è in esecuzione, entrambi rispondono ' +
+            'al tasto Voce. Cinema non lo tocca.'
           : '');
     }
 
@@ -1820,19 +1820,19 @@ export function createSettingsPanel(panel, getConfig, options) {
       voiceBusy = true;
       const turningOn = !voiceOn;
       paintVoicePower(turningOn
-        ? 'Turning on… the first time installs the voice card, up to a minute.'
-        : 'Turning off…');
+        ? 'Accensione… la prima volta installa la scheda voce, fino a un minuto.'
+        : 'Spegnimento…');
       (turningOn ? enableVoice() : disableVoice()).then(function (res) {
         voiceBusy = false;
         persistVoiceEnabled(turningOn);
         voiceOn = turningOn;
         paintOtherVoice(turningOn ? res.otherVoice : '');
-        paintVoicePower(turningOn ? 'On' : 'Off. Your keys and sign-in are kept.');
+        paintVoicePower(turningOn ? 'Attivo' : 'Spento. Chiavi e accessi restano salvati.');
         if (turningOn) loadAiTab();
       }, function (err) {
         voiceBusy = false;
-        paintVoicePower((turningOn ? 'Could not turn on: ' : 'Could not turn off: ') +
-          ((err && err.message) || 'it needs root (Homebrew Channel)'), 'err');
+        paintVoicePower((turningOn ? 'Impossibile accendere: ' : 'Impossibile spegnere: ') +
+          ((err && err.message) || 'serve root (Homebrew Channel)'), 'err');
       });
     });
 
@@ -1890,8 +1890,8 @@ export function createSettingsPanel(panel, getConfig, options) {
       aiApiKeyInput.placeholder = xaiConfigured ? (xaiMasked || '••••••••') : 'xai-…';
       aiApiKeyShowBtn.textContent = "Mostra";
       aiApiKeyHint.textContent = xaiConfigured
-        ? ('Grok API key on file: ' + xaiMasked + ' — leave blank to keep it.')
-        : 'Get a key at console.x.ai — stored only on this TV.';
+        ? ('Chiave API Grok salvata: ' + xaiMasked + '. Lascia vuoto per mantenerla.')
+        : 'Ottieni una chiave su console.x.ai: resta salvata solo su questa TV.';
       if (aiProviderSelect) {
         aiProviderSelect.value = provider;
         if (typeof aiProviderSelect.setValue === 'function') {
@@ -1919,8 +1919,8 @@ export function createSettingsPanel(panel, getConfig, options) {
       aiGeminiKeyInput.placeholder = gemConfigured ? (gemMasked || '••••••••') : 'AIza…';
       aiGeminiKeyShowBtn.textContent = "Mostra";
       aiGeminiKeyHint.textContent = gemConfigured
-        ? ('Current Gemini key: ' + gemMasked + ' — leave blank to keep it')
-        : 'Required for Gemini. Google AI Studio key (usually starts with AIza).';
+        ? ('Chiave Gemini attuale: ' + gemMasked + '. Lascia vuoto per mantenerla')
+        : 'Necessaria per Gemini. Chiave di Google AI Studio (di solito inizia con AIza).';
       if (aiOpenRouterKeyInput) {
         aiOpenRouterKeyInput.type = 'password';
         aiOpenRouterKeyInput.value = '';
@@ -1929,8 +1929,8 @@ export function createSettingsPanel(panel, getConfig, options) {
       if (aiOpenRouterKeyShowBtn) aiOpenRouterKeyShowBtn.textContent = "Mostra";
       if (aiOpenRouterKeyHint) {
         aiOpenRouterKeyHint.textContent = orConfigured
-          ? ('Current OpenRouter key: ' + orMasked + ' — leave blank to keep it')
-          : 'Required for OpenRouter. Get a key at openrouter.ai (usually starts with sk-or-).';
+          ? ('Chiave OpenRouter attuale: ' + orMasked + '. Lascia vuoto per mantenerla')
+          : 'Necessaria per OpenRouter. Ottieni una chiave su openrouter.ai (di solito inizia con sk-or-).';
       }
       fillFromService(aiSttSelect, 'stt_language');
       fillFromService(aiChatSelect, 'chat_model');
@@ -1972,28 +1972,28 @@ export function createSettingsPanel(panel, getConfig, options) {
           : !!(cfg.api_key_configured || oauthOk));
       if (lastErr && lastErr.message) {
         aiStatusLabel.textContent = lastErr.kind === 'credits'
-          ? 'Voice blocked — xAI API credits / spend limit'
-          : 'Voice blocked — xAI API error';
+          ? 'Voce bloccata: crediti o limite di spesa dell’API xAI'
+          : 'Voce bloccata: errore dell’API xAI';
         aiStatusLabel.className = 'settings-hint ai-status-line ai-status-err';
       } else if (status.daemonActive) {
         aiStatusLabel.textContent = ready
-          ? 'Voice daemon running — ready'
+          ? 'Servizio voce attivo: pronto'
           : (usingGemini
-            ? 'Daemon running — Gemini key still needed'
+            ? 'Servizio attivo: manca ancora la chiave Gemini'
             : (usingOpenRouter
-              ? 'Daemon running — OpenRouter key still needed'
-              : 'Daemon running — API key or SuperGrok sign-in still needed'));
+              ? 'Servizio attivo: manca ancora la chiave OpenRouter'
+              : 'Servizio attivo: manca ancora la chiave API o l’accesso SuperGrok'));
         aiStatusLabel.className = 'settings-hint ai-status-line ' +
           (ready ? 'ai-status-ok' : 'ai-status-warn');
       } else {
         aiStatusLabel.textContent = ready
-          ? ((usingGemini ? 'Gemini' : (usingOpenRouter ? 'OpenRouter' : 'Signed in')) +
-            ' configured — daemon not running (Save AI to restart)')
+          ? ((usingGemini ? 'Gemini configurato' : (usingOpenRouter ? 'OpenRouter configurato' : 'Accesso configurato')) +
+            ', ma il servizio non è in esecuzione (Salva per riavviarlo)')
           : (usingGemini
-            ? 'Voice service idle — add a Gemini key, then Save'
+            ? 'Servizio voce fermo: inserisci una chiave Gemini e poi Salva'
             : (usingOpenRouter
-              ? 'Voice service idle — add an OpenRouter key, then Save'
-              : 'Voice service idle — add an API key or SuperGrok sign-in, then Save'));
+              ? 'Servizio voce fermo: inserisci una chiave OpenRouter e poi Salva'
+              : 'Servizio voce fermo: inserisci una chiave API o accedi con SuperGrok, poi Salva'));
         aiStatusLabel.className = 'settings-hint ai-status-line ai-status-warn';
       }
     }
@@ -2034,8 +2034,8 @@ export function createSettingsPanel(panel, getConfig, options) {
             aiRetryTimer = setTimeout(function () { loadAiTab(true); }, 2500);
             return;
           }
-          aiStatusLabel.textContent = 'The voice assistant is not answering. Turn it off and on ' +
-            'again; its log is /tmp/launch-home-voice.log on the TV.';
+          aiStatusLabel.textContent = 'L’assistente vocale non risponde. Spegnilo e riaccendilo; ' +
+            'il suo log è /tmp/launch-home-voice.log sulla TV.';
           aiStatusLabel.className = 'settings-hint ai-status-line ai-status-err';
           return;
         }
@@ -2094,8 +2094,8 @@ export function createSettingsPanel(panel, getConfig, options) {
       const entry = PROFILE_OPTIONS.filter(function (p) { return p.id === profileId; })[0];
       profileBgNote.hidden = !forced;
       profileBgNote.textContent = forced
-        ? 'The ' + (entry ? entry.label : profileId) + ' profile uses its own dark background, ' +
-          'so this Source applies once Active profile is Default or Night.'
+        ? 'Il profilo ' + (entry ? entry.label : profileId) + ' usa uno sfondo scuro proprio: ' +
+          'questa Sorgente vale quando il profilo è Standard o Notte.'
         : '';
     }
     syncProfileBackgroundNote(config.profile || 'default');
@@ -2136,7 +2136,7 @@ export function createSettingsPanel(panel, getConfig, options) {
     const aerialHeading = document.createElement('span');
     aerialHeading.className = 'settings-block-label';
     aerialHeading.textContent =
-      'Choose an aerial clip (' + AERIAL_BACKGROUNDS.length + ' \u00b7 streams from Apple)';
+      'Scegli un video aereo (' + AERIAL_BACKGROUNDS.length + ' \u00b7 in streaming da Apple)';
     aerialRow.appendChild(aerialHeading);
 
     const aerialGrid = document.createElement('div');
@@ -2187,8 +2187,8 @@ export function createSettingsPanel(panel, getConfig, options) {
     const aerialHint = document.createElement('p');
     aerialHint.className = 'settings-hint';
     aerialHint.textContent =
-      'Clips stream from Apple\u2019s network (nothing is packaged) and play muted, full-screen and looping. The TV must be online; if a clip will not play, the gradient above is used instead. ' +
-      'Aerials are the heaviest background source (network plus continuous video decode), and Performance mode has no effect on video.';
+      'I video arrivano in streaming dalla rete Apple (nulla è incluso nell\u2019app) e vanno senza audio, a schermo intero e in loop. La TV deve essere online; se un video non parte, viene usato il gradiente qui sopra. ' +
+      'I video aerei sono lo sfondo più pesante (rete più decodifica video continua) e la Modalità prestazioni non ha effetto sul video.';
     aerialRow.appendChild(aerialHint);
     section.appendChild(aerialRow);
 
@@ -2278,7 +2278,7 @@ export function createSettingsPanel(panel, getConfig, options) {
     const builtinPickHint = document.createElement('p');
     builtinPickHint.className = 'settings-hint';
     builtinPickHint.textContent =
-      'Packaged at ~3840px for 4K TVs; Performance mode downloads 1920px copies. Arrows browse \u00b7 OK chooses the photo and moves on.';
+      'Incluse a circa 3840px per le TV 4K; la Modalità prestazioni scarica copie a 1920px. Le frecce sfogliano \u00b7 OK sceglie la foto e prosegue.';
     builtinRow.appendChild(builtinPickHint);
     section.appendChild(builtinRow);
 
@@ -2328,7 +2328,7 @@ export function createSettingsPanel(panel, getConfig, options) {
     const remoteHeading = document.createElement('span');
     remoteHeading.className = 'settings-block-label';
     remoteHeading.textContent =
-      'Choose an online photo (' + REMOTE_BACKGROUNDS.length + ' network images · nature + anime)';
+      'Scegli una foto online (' + REMOTE_BACKGROUNDS.length + ' immagini in rete · natura e anime)';
     remoteRow.appendChild(remoteHeading);
 
     const remoteGrid = document.createElement('div');
@@ -2448,22 +2448,22 @@ export function createSettingsPanel(panel, getConfig, options) {
         return;
       }
       if (!/^https?:\/\//i.test(url)) {
-        showUrlStatus('This needs a web link starting with https://', 'error');
+        showUrlStatus('Serve un collegamento web che inizi con https://', 'error');
         return;
       }
-      showUrlStatus('Checking the link\u2026', '');
+      showUrlStatus('Verifica del collegamento\u2026', '');
       const img = new Image();
       let settled = false;
       function done(ok) {
         if (settled || gen !== urlCheckGen) return;
         settled = true;
         if (ok) {
-          showUrlStatus('The link loads as an image (' + img.naturalWidth + ' \u00d7 ' +
-            img.naturalHeight + '). Press Save to use it.', 'ok');
+          showUrlStatus('Il collegamento carica un\u2019immagine (' + img.naturalWidth + ' \u00d7 ' +
+            img.naturalHeight + '). Premi Salva per usarla.', 'ok');
         } else {
-          showUrlStatus('That link didn\u2019t load as an image. Use the direct image link: it ' +
-            'usually ends in .jpg or .png (on an image host, \u201cCopy image address\u201d or ' +
-            '\u201cDirect link\u201d). A link to a web page about the photo won\u2019t work.', 'error');
+          showUrlStatus('Questo collegamento non carica un\u2019immagine. Usa il collegamento diretto all\u2019immagine: ' +
+            'di solito finisce in .jpg o .png (su un sito di foto, \u201cCopia indirizzo immagine\u201d o ' +
+            '\u201cLink diretto\u201d). Il collegamento a una pagina web sulla foto non funziona.', 'error');
         }
       }
       img.onload = function () { done(true); };
@@ -2489,7 +2489,7 @@ export function createSettingsPanel(panel, getConfig, options) {
     urlsInput.className = 'settings-textarea focusable';
     urlsInput.dataset.focusIndex = '932';
     urlsInput.rows = 4;
-    urlsInput.placeholder = 'One https image URL per line (leave empty to use curated online set)';
+    urlsInput.placeholder = 'Un indirizzo https per riga (vuoto: usa la raccolta online inclusa)';
     urlsInput.value = (bg.urls || []).join('\n');
     const urlsRow = labeledBlock("Indirizzi della presentazione", urlsInput);
     section.appendChild(urlsRow);
@@ -2515,8 +2515,8 @@ export function createSettingsPanel(panel, getConfig, options) {
     const kenBurnsHint = document.createElement('p');
     kenBurnsHint.className = 'settings-hint';
     kenBurnsHint.textContent =
-      'When on, the wallpaper slowly zooms in and drifts a little (like a calm slideshow). When off, the picture stays still. Photos only — not gradients. ' +
-      'While the wallpaper moves, tiles and buttons are tinted instead of frosted glass: blurring a moving picture makes TVs stutter.';
+      'Se attivo, lo sfondo si ingrandisce lentamente e si sposta un poco (come una presentazione tranquilla). Se spento, l’immagine resta ferma. Solo foto, non gradienti. ' +
+      'Mentre lo sfondo si muove, tessere e pulsanti sono colorati invece che in vetro smerigliato: sfocare un’immagine in movimento fa scattare la TV.';
     section.appendChild(kenBurnsHint);
 
     const oledNote = document.createElement('p');
@@ -2694,7 +2694,7 @@ export function createSettingsPanel(panel, getConfig, options) {
       });
 
       if (opts.length === 1) {
-        opts[0].label = 'No USB drives detected — type a path below';
+        opts[0].label = 'Nessuna USB rilevata: scrivi un percorso qui sotto';
       }
       musicFolderPicker.setOptions(opts, config.music.path || '');
     }).catch(function () {
@@ -2706,7 +2706,7 @@ export function createSettingsPanel(panel, getConfig, options) {
     musicPathInput.type = 'text';
     musicPathInput.className = 'settings-text focusable';
     musicPathInput.dataset.focusIndex = '952';
-    musicPathInput.placeholder = 'e.g. /media/usb1/lounge/music';
+    musicPathInput.placeholder = 'es. /media/usb1/lounge/music';
     musicPathInput.value = config.music.path || '';
     const musicPathRow = labeledControl("Cartella della musica", musicPathInput);
     musicSection.appendChild(musicPathRow);
@@ -2746,11 +2746,12 @@ export function createSettingsPanel(panel, getConfig, options) {
       usbPlaylistList.innerHTML = '';
       if (!usbTrackEntries.length) {
         usbScanStatus.textContent = musicPathInput.value.trim()
-          ? 'No tracks found. Add playlist.m3u or tracks.json in that folder.'
-          : 'Set a USB music folder to load your tracks.';
+          ? 'Nessun brano trovato. Aggiungi playlist.m3u o tracks.json in quella cartella.'
+          : 'Imposta una cartella musica su USB per caricare i tuoi brani.';
         return;
       }
-      usbScanStatus.textContent = usbTrackEntries.length + ' track(s) found — tick the ones to play.';
+      usbScanStatus.textContent = usbTrackEntries.length +
+        (usbTrackEntries.length === 1 ? ' brano trovato' : ' brani trovati') + ': spunta quelli da riprodurre.';
       const hadSaved = savedUsb.length > 0;
       usbTrackEntries.forEach(function (entry, index) {
         const url = entry.url || '';
@@ -2980,7 +2981,7 @@ export function createSettingsPanel(panel, getConfig, options) {
     const customSsHint = document.createElement('p');
     customSsHint.className = 'settings-hint';
     customSsHint.textContent =
-      'Full-screen photo slideshow from your Cinema wallpapers while this app is open. Any remote button wakes. Uses Ken Burns motion for OLED care.';
+      'Presentazione a schermo intero con gli sfondi di Cinema mentre l’app è aperta. Qualsiasi tasto del telecomando la interrompe. Usa un movimento lento per proteggere gli OLED.';
     launcherSection.appendChild(customSsHint);
 
     const previewSsBtn = document.createElement('button');
@@ -2994,7 +2995,7 @@ export function createSettingsPanel(panel, getConfig, options) {
       if (options.onPreviewScreensaver) {
         options.onPreviewScreensaver();
       } else if (options.onToast) {
-        options.onToast('Save & reopen Cinema to preview');
+        options.onToast('Salva e riapri Cinema per l’anteprima');
       }
     });
     launcherSection.appendChild(previewSsBtn);
@@ -3166,8 +3167,8 @@ export function createSettingsPanel(panel, getConfig, options) {
       note.textContent = text;
       return note;
     }
-    glassSection.appendChild(glassNote('How the see-through app tiles, input buttons and Settings button ' +
-      'look over your wallpaper. The preview shows your choices; press Save to keep them.'));
+    glassSection.appendChild(glassNote('Come appaiono le tessere trasparenti delle app, i pulsanti degli ingressi e il pulsante Impostazioni ' +
+      'sopra lo sfondo. L’anteprima mostra le tue scelte; premi Salva per mantenerle.'));
 
     // A sample over the current wallpaper: a tile, the tile the remote is on,
     // the current input and another input, in the choices below (before Save).
@@ -3209,10 +3210,10 @@ export function createSettingsPanel(panel, getConfig, options) {
     }
     const previewInputs = document.createElement('div');
     previewInputs.className = 'glass-preview-inputs';
-    previewInputs.appendChild(previewChip('Current input', true));
-    previewInputs.appendChild(previewChip('Other input', false));
-    glassPreview.appendChild(previewTile('A tile', 'assets/app-icons/netflix.png', false));
-    glassPreview.appendChild(previewTile('Selected', 'assets/app-icons/youtube.png', true));
+    previewInputs.appendChild(previewChip('Ingresso attuale', true));
+    previewInputs.appendChild(previewChip('Altro ingresso', false));
+    glassPreview.appendChild(previewTile('Una tessera', 'assets/app-icons/netflix.png', false));
+    glassPreview.appendChild(previewTile('Selezionata', 'assets/app-icons/youtube.png', true));
     glassPreview.appendChild(previewInputs);
     glassSection.appendChild(glassPreview);
 
@@ -3232,8 +3233,8 @@ export function createSettingsPanel(panel, getConfig, options) {
     dimRange.addEventListener('input', paintPreviewDimming);
     paintPreviewDimming();
     glassSection.appendChild(labeledControl("Oscuramento dello sfondo", dimRange));
-    glassSection.appendChild(glassNote('Darkens the whole wallpaper evenly, for glare, evenings or an OLED. ' +
-      '0 shows the picture as it is.'));
+    glassSection.appendChild(glassNote('Scurisce tutto lo sfondo in modo uniforme: utile con i riflessi, la sera o su un OLED. ' +
+      '0 mostra l’immagine com’è.'));
 
     const overlayRange = document.createElement('input');
     overlayRange.type = 'range';
@@ -3272,8 +3273,8 @@ export function createSettingsPanel(panel, getConfig, options) {
       {value: 'warm', label: "Caldo"}
     ], config.launcher.glassTint || 'light', paintGlassPreview);
     glassSection.appendChild(labeledControl("Colore delle tessere", glassSelect));
-    glassSection.appendChild(glassNote('Inside the app tiles, input buttons and Settings button. ' +
-      'Dark or Black suit dark wallpapers.'));
+    glassSection.appendChild(glassNote('Il riempimento delle tessere delle app, dei pulsanti degli ingressi e del pulsante Impostazioni. ' +
+      'Scuro o Nero stanno bene con gli sfondi scuri.'));
 
     const glassBorderSelect = createOptionStepper('', 1092, [
       {value: 'white', label: "Bianco"},
@@ -3299,8 +3300,8 @@ export function createSettingsPanel(panel, getConfig, options) {
       {value: 'gold', label: "Oro"}
     ], config.launcher.focusColour || 'warm', paintGlassPreview);
     glassSection.appendChild(labeledControl("Indicatore del focus", focusColourSelect));
-    glassSection.appendChild(glassNote('The glow around the tile or button the remote is on, ' +
-      'and the colour of the current input.'));
+    glassSection.appendChild(glassNote('L’alone intorno alla tessera o al pulsante su cui si trova il telecomando, ' +
+      'e il colore dell’ingresso attuale.'));
 
     paintGlassPreview();
     panes.look.appendChild(glassSection);
@@ -3333,8 +3334,8 @@ export function createSettingsPanel(panel, getConfig, options) {
     const weatherPlaceHint = document.createElement('p');
     weatherPlaceHint.className = 'settings-hint';
     function paintWeatherPlace(pending) {
-      weatherPlaceHint.textContent = 'Location: ' + weatherPlace.name +
-        (pending ? ' — press Save to use it' : '');
+      weatherPlaceHint.textContent = 'Località: ' + weatherPlace.name +
+        (pending ? ': premi Salva per usarla' : '');
     }
     paintWeatherPlace(false);
     weatherSection.appendChild(weatherPlaceHint);
@@ -3343,7 +3344,7 @@ export function createSettingsPanel(panel, getConfig, options) {
     weatherSearchInput.type = 'text';
     weatherSearchInput.className = 'settings-text focusable';
     weatherSearchInput.dataset.focusIndex = '1022';
-    weatherSearchInput.placeholder = 'Start typing a place, e.g. tok';
+    weatherSearchInput.placeholder = 'Inizia a scrivere una località, es. mil';
     weatherSearchInput.setAttribute('autocomplete', 'off');
     weatherSection.appendChild(labeledControl("Cambia località", weatherSearchInput));
 
@@ -3355,9 +3356,9 @@ export function createSettingsPanel(panel, getConfig, options) {
     weatherSuggestions.hidden = true;
     weatherSection.appendChild(weatherSuggestions);
 
-    const WEATHER_IDLE_HINT = 'Start typing a town or city — matching places appear as you type. ' +
-      'Forecast from Open-Meteo (no account needed); needs the TV to be online. ' +
-      'Untick Show weather to hide it — nothing is downloaded while it’s off.';
+    const WEATHER_IDLE_HINT = 'Inizia a scrivere una città: le località corrispondenti compaiono mentre scrivi. ' +
+      'Previsioni di Open-Meteo (senza account); la TV deve essere online. ' +
+      'Togli la spunta a Mostra meteo per nasconderlo: da spento non scarica nulla.';
     const weatherStatus = document.createElement('p');
     weatherStatus.className = 'settings-hint';
     weatherStatus.textContent = WEATHER_IDLE_HINT;
@@ -3392,7 +3393,7 @@ export function createSettingsPanel(panel, getConfig, options) {
       weatherSearchInput.value = place.name;
       clearWeatherSuggestions();
       paintWeatherPlace(true);
-      weatherStatus.textContent = 'Press Save to show the weather for ' + place.name + '.';
+      weatherStatus.textContent = 'Premi Salva per mostrare il meteo di ' + place.name + '.';
       focusSettingsControl(weatherSearchInput);
     }
 
@@ -3425,16 +3426,16 @@ export function createSettingsPanel(panel, getConfig, options) {
       }
       // Short pause so each keystroke doesn't fire a request.
       weatherLookupTimer = setTimeout(function () {
-        weatherStatus.textContent = 'Looking up “' + typed + '”…';
+        weatherStatus.textContent = 'Cerco “' + typed + '”…';
         searchPlaces(typed, 6).then(function (places) {
           if (seq !== weatherLookupSeq) return; // a newer keystroke won
           renderWeatherSuggestions(places, typed);
           weatherStatus.textContent = places.length
-            ? 'Close the keyboard, then press ↓ and OK to pick a place (or point and click).'
-            : 'No places match “' + typed + '” — check the spelling.';
+            ? 'Chiudi la tastiera, poi premi ↓ e OK per scegliere una località (o punta e clicca).'
+            : 'Nessuna località corrisponde a “' + typed + '”: controlla come l’hai scritta.';
         }).catch(function () {
           if (seq !== weatherLookupSeq) return;
-          weatherStatus.textContent = 'Could not look up places — check the TV is online.';
+          weatherStatus.textContent = 'Impossibile cercare le località: controlla che la TV sia online.';
         });
       }, 300);
     }
@@ -3533,7 +3534,7 @@ export function createSettingsPanel(panel, getConfig, options) {
       if (importingLg) return;
       importingLg = true;
       // Not disabled while busy: a disabled button drops focus.
-      importLgBtn.textContent = 'Reading LG\u2019s home screen\u2026';
+      importLgBtn.textContent = 'Lettura della Home LG\u2026';
       importLgStatus.hidden = false;
       importLgStatus.textContent = '';
       try {
@@ -3541,23 +3542,23 @@ export function createSettingsPanel(panel, getConfig, options) {
         // Their names and icons, for when the TV can't be asked later.
         rememberApps(points);
         if (!points.length) {
-          importLgStatus.textContent = 'Couldn\u2019t read LG\u2019s home screen. It needs root ' +
+          importLgStatus.textContent = 'Impossibile leggere la Home LG. Serve root ' +
             '(Homebrew Channel).';
           return;
         }
         const toAdd = lgHomeAppsToAdd(points, pinnedOrder, customApps);
         if (!toAdd.length) {
-          importLgStatus.textContent = 'Every app on LG\u2019s home screen is already here.';
+          importLgStatus.textContent = 'Tutte le app della Home LG sono già qui.';
           return;
         }
         toAdd.forEach(function (id) { pinnedOrder.push(id); });
         await loadAppsLists(pinnedList, addAppsList, config);
-        importLgStatus.textContent = 'Added ' + toAdd.length + (toAdd.length === 1 ? ' app' : ' apps') +
-          ' from LG\u2019s home screen, in LG\u2019s order, after the ones you had. Remove or move ' +
-          'any of them above, then press Save to keep them.';
+        importLgStatus.textContent = (toAdd.length === 1 ? 'Aggiunta 1 app' : 'Aggiunte ' + toAdd.length + ' app') +
+          ' dalla Home LG, nell\u2019ordine di LG, dopo quelle che avevi. Rimuovi o sposta ' +
+          'quelle che vuoi qui sopra, poi premi Salva per mantenerle.';
       } catch (err) {
-        importLgStatus.textContent = 'Couldn\u2019t read LG\u2019s home screen: ' +
-          ((err && err.message) || 'it needs root (Homebrew Channel)');
+        importLgStatus.textContent = 'Impossibile leggere la Home LG: ' +
+          ((err && err.message) || 'serve root (Homebrew Channel)');
       } finally {
         importingLg = false;
         importLgBtn.textContent = 'Importa tutte le app dalla Home LG';
@@ -3612,14 +3613,14 @@ export function createSettingsPanel(panel, getConfig, options) {
     customAppIdInput.type = 'text';
     customAppIdInput.className = 'settings-text focusable';
     customAppIdInput.dataset.focusIndex = '1400';
-    customAppIdInput.placeholder = 'e.g. com.spotify.tv';
+    customAppIdInput.placeholder = 'es. com.spotify.tv';
     customSection.appendChild(labeledControl("ID app", customAppIdInput));
 
     const customNameInput = document.createElement('input');
     customNameInput.type = 'text';
     customNameInput.className = 'settings-text focusable';
     customNameInput.dataset.focusIndex = '1401';
-    customNameInput.placeholder = 'e.g. Spotify';
+    customNameInput.placeholder = 'es. Spotify';
     customSection.appendChild(labeledControl("Nome", customNameInput));
 
     const iconPreview = document.createElement('img');
@@ -3651,7 +3652,7 @@ export function createSettingsPanel(panel, getConfig, options) {
     addCustomBtn.addEventListener('click', function () {
       const launchId = customAppIdInput.value.trim();
       if (!launchId) {
-        if (options.onToast) options.onToast('Enter an App ID first');
+        if (options.onToast) options.onToast('Inserisci prima l’ID dell’app');
         return;
       }
 
@@ -3717,8 +3718,8 @@ export function createSettingsPanel(panel, getConfig, options) {
       });
 
       discoverStatus.textContent = available.length
-        ? 'Found ' + discovered.length + ' apps.'
-        : 'All discovered apps are already in your dock.';
+        ? 'Trovate ' + discovered.length + ' app.'
+        : 'Tutte le app trovate sono già nel dock.';
 
       available.forEach(function (app, index) {
         const row = document.createElement('div');
@@ -3770,7 +3771,7 @@ export function createSettingsPanel(panel, getConfig, options) {
       if (scanning) return;
       scanning = true;
       scanBtn.disabled = true;
-      discoverStatus.textContent = 'Scanning\u2026';
+      discoverStatus.textContent = 'Ricerca\u2026';
       try {
         discovered = await listInstalledApps({includeHidden: true});
         discovered.sort(function (a, b) {
@@ -3837,8 +3838,8 @@ export function createSettingsPanel(panel, getConfig, options) {
       const chosen = chosenBackup();
       if (!chosen) return;
       backupStatus.textContent = compatibilityNote(chosen) + (chosen.readable
-        ? ' Press “Restore this backup” to replace your current settings with it; ' +
-          'a copy of them is kept first.'
+        ? ' Premi “Ripristina questo backup” per sostituire le impostazioni attuali; ' +
+          'prima ne viene salvata una copia.'
         : '');
     }
     function closeBackupPicker() {
@@ -3859,19 +3860,19 @@ export function createSettingsPanel(panel, getConfig, options) {
         const text = settingsBackupText(loadConfig(), {reason: 'manual'});
         const res = await writeSettingsBackup(text, roots[0] || '');
         const savedAt = JSON.parse(text).savedAt;
-        const where = res.usb ? 'TV and USB drive' : 'TV';
+        const where = res.usb ? 'TV e USB' : 'TV';
         try {
           localStorage.setItem(LAST_BACKUP_KEY, JSON.stringify({savedAt: savedAt, where: where}));
         } catch (err) {
           // The note is optional.
         }
-        backupStatus.textContent = 'Backed up on ' + backupWhen(savedAt) + ' to the ' + where + '.' +
-          (res.usb === false ? ' The USB drive couldn’t be written' +
+        backupStatus.textContent = 'Backup salvato il ' + backupWhen(savedAt) + ' su ' + where + '.' +
+          (res.usb === false ? ' Non è stato possibile scrivere sulla USB' +
             (res.usbError ? ' (' + res.usbError + ')' : '') + '.' : '') +
-          (res.usb === null ? ' No USB drive plugged in.' : '');
+          (res.usb === null ? ' Nessuna USB collegata.' : '');
       } catch (err) {
-        backupStatus.textContent = 'Backup failed: ' +
-          ((err && err.message) || 'it needs root (Homebrew Channel)');
+        backupStatus.textContent = 'Backup non riuscito: ' +
+          ((err && err.message) || 'serve root (Homebrew Channel)');
       } finally {
         backupBusy = false;
         backupBtn.textContent = "Crea backup";
@@ -3911,8 +3912,8 @@ export function createSettingsPanel(panel, getConfig, options) {
             settingsBackupText(loadConfig(), {reason: 'before-restore'}));
         } catch (err) {
           restoreBtn.textContent = "Ripristina questo backup";
-          backupStatus.textContent = 'Couldn’t keep a copy of your current settings first, so ' +
-            'nothing was changed' + (err && err.message ? ': ' + err.message : '.');
+          backupStatus.textContent = 'Non è stato possibile salvare prima una copia delle impostazioni attuali, ' +
+            'quindi non è cambiato nulla' + (err && err.message ? ': ' + err.message : '.');
           return;
         }
         const result = configFromBackup(chosen.data.config, config);
@@ -3927,8 +3928,8 @@ export function createSettingsPanel(panel, getConfig, options) {
         redrawAfterRestore();
       } catch (err) {
         closeBackupPicker();
-        backupStatus.textContent = 'Could not look for backups: ' +
-          ((err && err.message) || 'it needs root (Homebrew Channel)');
+        backupStatus.textContent = 'Impossibile cercare i backup: ' +
+          ((err && err.message) || 'serve root (Homebrew Channel)');
       } finally {
         backupBusy = false;
       }
@@ -3975,8 +3976,8 @@ export function createSettingsPanel(panel, getConfig, options) {
       tvCheckBtn.textContent = "Controllo…";
       tvCheckResult.hidden = true;
       tvCheckStatus.textContent =
-        'Checking… about 40 seconds. TV Settings will open and close by itself, twice ' +
-        '(if it stays open, press Exit).';
+        'Controllo in corso… circa 40 secondi. Le impostazioni della TV si apriranno e chiuderanno da sole, due volte ' +
+        '(se restano aperte, premi Exit).';
       try {
         const head = tvCheckHead(getConfig());
         const probe = startLauncherProbe();
@@ -3998,14 +3999,14 @@ export function createSettingsPanel(panel, getConfig, options) {
         // Some TVs (webOS 9) keep TV Settings open despite the check's close.
         const stuck = /didn.t close by itself/.test(report);
         tvCheckStatus.textContent = (stuck
-          ? 'Done, but TV Settings didn\u2019t close by itself on this TV: press Exit or Back ' +
-            'to close it. '
-          : 'Done. ') + 'Scan the code to copy this text. The full report is in ' +
-          '/tmp/launch-home-diagnostics.txt on the TV.';
+          ? 'Fatto, ma su questa TV le impostazioni non si sono chiuse da sole: premi Exit o Indietro ' +
+            'per chiuderle. '
+          : 'Fatto. ') + 'Inquadra il codice per copiare questo testo. Il rapporto completo è in ' +
+          '/tmp/launch-home-diagnostics.txt sulla TV.';
         focusSettingsControlNow(tvCheckResult);
       } catch (err) {
-        tvCheckStatus.textContent = 'TV check failed: ' +
-          ((err && err.message) || 'it needs root (Homebrew Channel)');
+        tvCheckStatus.textContent = 'Diagnostica non riuscita: ' +
+          ((err && err.message) || 'serve root (Homebrew Channel)');
       } finally {
         checking = false;
         tvCheckBtn.textContent = "Controlla la TV";
@@ -4044,7 +4045,7 @@ export function createSettingsPanel(panel, getConfig, options) {
         if (key && isGrokProvider()) {
           if (key.indexOf('xai-') !== 0 && key.indexOf('eyJ') !== 0) {
             if (options.onToast) {
-              options.onToast('Grok key should start with xai- (or paste a SuperGrok token)');
+              options.onToast('La chiave Grok deve iniziare con xai- (oppure incolla un token SuperGrok)');
             }
             return;
           }
@@ -4061,28 +4062,31 @@ export function createSettingsPanel(panel, getConfig, options) {
         saveBtn.disabled = true;
         saveBtn.textContent = "Salvataggio…";
         setVoiceConfig(payload).then(function (res) {
-          if(options.onCustomSave){options.onCustomSave(config);saveConfig(config);}
           saveBtn.disabled = false;
           saveBtn.textContent = "Salva";
           if (res && res.restarting) {
-            if (options.onToast) options.onToast('AI settings saved — restarting voice…');
+            if (options.onToast) options.onToast('Assistente salvato: riavvio della voce…');
           } else if (options.onToast) {
-            options.onToast('AI settings saved');
+            options.onToast('Assistente salvato');
           }
           aiApiKeyInput.value = '';
           aiGeminiKeyInput.value = '';
           if (aiOpenRouterKeyInput) aiOpenRouterKeyInput.value = '';
-          loadAiTab();
+          // Changes made in the other tabs are saved with it, as Salva says;
+          // they used to be dropped without a word.
+          saveGeneral();
         }).catch(function (err) {
           saveBtn.disabled = false;
           saveBtn.textContent = "Salva";
           if (options.onToast) {
-            options.onToast((err && err.message) || 'Could not save AI settings');
+            options.onToast((err && err.message) || 'Impossibile salvare l’assistente');
           }
         });
         return;
       }
+      saveGeneral();
 
+      function saveGeneral() {
       config.profile = profileSelect.value;
       config.background.source = sourceSelect.value;
       config.background.mode = displaySelect.value;
@@ -4208,14 +4212,18 @@ export function createSettingsPanel(panel, getConfig, options) {
       config.launcher.channels = channelsSelect.value;
 
       if(options.onCustomSave)options.onCustomSave(config);
-      saveConfig(config);
+      if (!saveConfig(config)) {
+        if (options.onToast) options.onToast('Impossibile salvare le impostazioni: memoria della TV piena');
+        return;
+      }
       if (options.onSave) options.onSave(config);
       if (config.launcher.launchOnHome && options.onToast) {
-        options.onToast('Enabling Home → Cinema watcher…');
+        options.onToast('Attivazione di Home → Cinema…');
       } else if (config.launcher.bootOnStart && options.onToast) {
-        options.onToast('Enabling boot on TV start…');
+        options.onToast('Attivazione dell’avvio con la TV…');
       }
       hide();
+      }
     });
     headerActions.insertBefore(saveBtn, closeBtn);
     const footer=document.createElement('div');footer.className='settings-footer';
@@ -4439,8 +4447,8 @@ export function createSettingsPanel(panel, getConfig, options) {
       const empty = document.createElement('p');
       empty.className = 'settings-hint';
       empty.textContent = candidates.length
-        ? 'All available apps are already pinned.'
-        : 'No other apps were found on this TV.';
+        ? 'Tutte le app disponibili sono già nel dock.'
+        : 'Nessun’altra app trovata su questa TV.';
       addContainer.appendChild(empty);
     }
 

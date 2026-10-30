@@ -63,6 +63,7 @@ export function createAppGrid(container, getConfig, options) {
     const img = document.createElement('img');
     img.className = 'app-icon';
     img.alt = '';
+    img.decoding = 'async';
     img.addEventListener('error', function () {
       const fallbackIcon = getBuiltinAppIcon(app.id);
       if (fallbackIcon && img.dataset.iconUrl !== fallbackIcon) {
@@ -120,6 +121,7 @@ export function createAppGrid(container, getConfig, options) {
     const img = document.createElement('img');
     img.className = 'app-icon';
     img.alt = '';
+    img.decoding = 'async';
     img.addEventListener('error', function () {
       if (img.dataset.iconUrl !== BUNDLED_SETTINGS_ICON) {
         setIconSrc(img, BUNDLED_SETTINGS_ICON);

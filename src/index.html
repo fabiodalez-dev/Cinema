@@ -7,14 +7,40 @@
   <meta http-equiv="Expires" content="0">
   <meta name="viewport" content="width=1920, height=1080, initial-scale=1, user-scalable=no">
   <title>Cinema</title>
+  <!-- No font preload: from file:// the preloaded copy is never reused (the
+       TV warned and fetched each font twice); font-display:block covers the start. -->
   <link rel="stylesheet" href="styles/main.css">
   <link rel="stylesheet" href="styles/cinematic.css">
   <link rel="stylesheet" href="styles/settings-cinema.css">
   <script src="webOS.js"></script>
 </head>
 <body>
+  <script>
+  // Cold start: Cinema's own look before main.js runs, so the legacy home never
+  // flashes. Mirrors cinematic.js (launch-home.cinema.v1 / config.cinema,
+  // enabled defaults to true) and main.js applyPerfMode (lounge.config.v1
+  // launcher.perfMode, defaults to true); main.js sets the final classes.
+  (function () {
+    function read(key) {
+      try { return JSON.parse(localStorage.getItem(key)) || {}; } catch (err) { return {}; }
+    }
+    var config = read('lounge.config.v1');
+    var cinema = read('launch-home.cinema.v1');
+    var enabled = cinema.enabled;
+    if (config.cinema && typeof config.cinema.enabled === 'boolean') enabled = config.cinema.enabled;
+    var perf = config.launcher ? config.launcher.perfMode : undefined;
+    var classes = [];
+    if (enabled !== false) classes.push('cinematic');
+    if (perf !== false) classes.push('perf-mode');
+    if (!classes.length) return;
+    document.documentElement.className += ' ' + classes.join(' ');
+    document.body.className += (document.body.className ? ' ' : '') + classes.join(' ');
+  })();
+  </script>
   <div id="app">
-    <div id="background-layer" aria-hidden="true"></div>
+    <div id="background-layer" aria-hidden="true">
+      <div class="background-photo" aria-hidden="true"></div>
+    </div>
     <div id="scrim" aria-hidden="true"></div>
     <div id="dim" aria-hidden="true"></div>
 
@@ -25,7 +51,7 @@
         <div id="clock-date" class="clock-date"></div>
       </div>
       <div class="top-actions">
-        <div id="voice-indicator" class="voice-indicator" hidden aria-hidden="true" role="status" aria-live="polite" aria-label="Listening">
+        <div id="voice-indicator" class="voice-indicator" hidden aria-hidden="true" role="status" aria-live="polite" aria-label="In ascolto">
           <span class="voice-indicator-glow" aria-hidden="true"></span>
           <span class="voice-indicator-ai" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="22" height="22" fill="none">
@@ -43,7 +69,7 @@
               <path d="M9 20.2h6"/>
             </svg>
           </span>
-          <span class="voice-indicator-label">Listening</span>
+          <span class="voice-indicator-label">In ascolto</span>
         </div>
         <button id="app-settings-btn" class="settings-icon focusable" type="button" aria-label="Impostazioni" data-focus-index="90">
           <svg class="settings-icon-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -89,7 +115,8 @@
 
     <div id="settings-panel" class="settings-panel" hidden></div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <audio id="ambient-audio" preload="auto" playsinline webkit-playsinline></audio>
+    <!-- Tracks stream from a CDN (builtin-music.js): fetch only when playing. -->
+    <audio id="ambient-audio" preload="none" playsinline webkit-playsinline></audio>
 
     <!-- In-app screensaver: full-screen slideshow + clock after idle. -->
     <div id="custom-screensaver" class="custom-screensaver" hidden aria-hidden="true" role="dialog" aria-label="Screensaver">
@@ -100,7 +127,7 @@
         <div class="custom-screensaver-time"></div>
         <div class="custom-screensaver-date"></div>
       </div>
-      <div class="custom-screensaver-hint">Press any button</div>
+      <div class="custom-screensaver-hint">Premi un tasto qualsiasi</div>
     </div>
   </div>
 

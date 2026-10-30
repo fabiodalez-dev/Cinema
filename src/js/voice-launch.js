@@ -1,6 +1,7 @@
 import {getAppIdCandidates, getBuiltinAppTitle} from './app-icons.js';
 
-const LAUNCH_VERB_RE = /^(?:open|launch|start|run|play|go\s+to|load|show|put\s+on|fire\s+up|bring\s+up|lunch|punch|lanch|lauch|launce)\s+/i;
+// English and Italian: the TV speaks Italian ("apri Netflix", "vai su YouTube").
+const LAUNCH_VERB_RE = /^(?:open|launch|start|run|play|go\s+to|load|show|put\s+on|fire\s+up|bring\s+up|lunch|punch|lanch|lauch|launce|apri|aprimi|avvia|lancia|metti|vai\s+su|vai\s+a|mostra|fammi\s+vedere|accendi)\s+(?:l['’]app\s+|l['’]\s*|il\s+|la\s+|lo\s+|le\s+|gli\s+|un[ao]?\s+)?/i;
 
 const PRIME_RE = /^(?:the\s+)?(?:amazon\s+prime(?:\s+video)?|prime\s+video|amazon\s+video|prime|amazon)$/i;
 
@@ -17,7 +18,17 @@ const SPOKEN_ALIASES = {
   browser: 'com.webos.app.browser',
   'web browser': 'com.webos.app.browser',
   settings: 'com.webos.app.settings',
-  'tv settings': 'com.webos.app.settings'
+  'tv settings': 'com.webos.app.settings',
+  navigatore: 'com.webos.app.browser',
+  internet: 'com.webos.app.browser',
+  impostazioni: 'com.webos.app.settings',
+  'impostazioni tv': 'com.webos.app.settings',
+  'impostazioni della tv': 'com.webos.app.settings',
+  'disney più': 'com.disney.disneyplus',
+  'apple tivù': 'com.apple.appletv',
+  'tivù': 'com.webos.app.livetv',
+  'la tv': 'com.webos.app.livetv',
+  'live tv': 'com.webos.app.livetv'
 };
 
 function normalizeSpoken(text) {

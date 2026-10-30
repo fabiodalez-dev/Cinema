@@ -113,6 +113,139 @@ class PowerOffAt(unittest.TestCase):
         for bad in ('2:00', '24:00', '02:60', '', None, 5, '02:00; reboot'):
             self.assertIsNone(tv.clean_time(bad))
 
+    def test_due_when_the_minute_was_passed_since_the_last_check(self):
+        at = self.at
+        # Reached between two checks 20 s apart, also when the loop was slow and skipped the minute.
+        self.assertTrue(tv.due(at('02:00'), at('01:59'), '02:00', None))
+        self.assertTrue(tv.due(at('02:03'), at('01:59'), '02:00', None))
+        self.assertFalse(tv.due(at('01:59'), at('01:58'), '02:00', None))
+        self.assertFalse(tv.due(at('02:03'), at('02:01'), '02:00', None))
+        # Once a day: the local date of the last power-off blocks it.
+        self.assertFalse(tv.due(at('02:00'), at('01:59'), '02:00', '2026-10-24'))
+        self.assertTrue(tv.due(at('02:00'), at('01:59'), '02:00', '2026-10-23'))
+        # Same minute twice: only the exact minute, so done_date is what stops a second power-off.
+        self.assertTrue(tv.due(at('02:00'), at('02:00'), '02:00', None))
+        self.assertFalse(tv.due(at('02:01'), at('02:01'), '02:00', None))
+        # First check ever: exact minute only.
+        self.assertTrue(tv.due(at('02:00'), None, '02:00', None))
+        self.assertFalse(tv.due(at('02:01'), None, '02:00', None))
+        self.assertFalse(tv.due(at('02:00'), None, None, None))
+
+    def test_due_across_midnight_and_a_dst_jump_but_not_across_a_clock_set(self):
+        import time as t
+        at = self.at
+        self.assertTrue(tv.due(at('00:00'), at('23:59'), '00:00', None))
+        self.assertTrue(tv.due(t.strptime('2026-10-25 00:00', '%Y-%m-%d %H:%M'), at('23:58'), '23:59', None))
+        # 23:59 was current at the last check: that check fired it.
+        self.assertFalse(tv.due(t.strptime('2026-10-25 00:00', '%Y-%m-%d %H:%M'), at('23:59'), '23:59', None))
+        self.assertFalse(tv.due(at('00:00'), at('23:59'), '12:00', None))
+        # Spring forward: 01:59:50 -> 03:00:10 local, 20 s apart on the epoch; 02:30 is not skipped.
+        last = t.localtime(t.mktime(t.strptime('2026-03-29 01:59:50', '%Y-%m-%d %H:%M:%S')))
+        now = t.localtime(t.mktime(last) + 20)
+        if now.tm_hour == 3:  # only where the test machine's zone has that jump
+            self.assertTrue(tv.due(now, last, '02:30', None))
+        # A clock set forward by hours (NTP after a power cut) is not a window to catch up on.
+        self.assertFalse(tv.due(at('07:10'), t.strptime('1970-01-01 00:00', '%Y-%m-%d %H:%M'), '02:00', None))
+        self.assertFalse(tv.due(at('07:10'), at('01:00'), '02:00', None))
+        self.assertTrue(tv.due(at('02:00'), t.strptime('1970-01-01 00:00', '%Y-%m-%d %H:%M'), '02:00', None))
+
+    def test_warn_and_off_follow_due(self):
+        self.assertEqual(tv.power_off_due('02:00', self.at('02:01'), None, None, self.at('01:59')), 'off')
+        self.assertEqual(tv.power_off_due('02:00', self.at('01:59'), None, None, self.at('01:58')), 'warn')
+        self.assertEqual(tv.power_off_due('02:00', self.at('01:59'), None, '2026-10-24', self.at('01:58')), None)
+
+    def test_clock_is_trusted_from_its_source_or_as_a_fallback(self):
+        self.assertFalse(tv.clock_trusted({'returnValue': True, 'source': 'micom', 'utc': 1}, 2026, 9999))
+        self.assertTrue(tv.clock_trusted({'returnValue': True, 'source': 'ntp', 'utc': 1}, 2026, 10))
+        self.assertTrue(tv.clock_trusted({'returnValue': True, 'source': 'micom', 'systemTimeSource': 'broadcast'}, 2026, 10))
+        self.assertTrue(tv.clock_trusted({'returnValue': True, 'source': 'micom', 'systemTimeSource': 'ntp'}, 2026, 10))
+        # No usable reply: a sane year on a TV up for ten minutes.
+        self.assertTrue(tv.clock_trusted({}, 2026, 600))
+        self.assertFalse(tv.clock_trusted({}, 2026, 120))
+        self.assertFalse(tv.clock_trusted({}, 1970, 9999))
+        self.assertFalse(tv.clock_trusted({'returnValue': False, 'errorText': 'x'}, 2010, 9999))
+        self.assertTrue(tv.clock_trusted(None, 2026, 601))
+
+
+class PreloadBaseline(unittest.TestCase):
+    def test_lgs_list_is_merged_by_id(self):
+        base = [{'id': 'amazon', 'isEnabled': True, 'requiredMemory': 100}, {'id': 'gone', 'isEnabled': True}]
+        cur = [{'id': 'amazon', 'isEnabled': False, 'requiredMemory': 120}, {'id': 'new', 'isEnabled': True}]
+        out = tv.merge_preload_baseline(base, cur)
+        self.assertEqual(out, [{'id': 'amazon', 'isEnabled': True, 'requiredMemory': 120}, {'id': 'new', 'isEnabled': True}])
+        self.assertEqual(tv.merge_preload_baseline(None, cur), cur)
+        self.assertEqual(tv.merge_preload_baseline(out, cur), out, 'stable')
+
+
+class WriteJson(unittest.TestCase):
+    def test_unchanged_content_is_not_rewritten(self):
+        d = tempfile.mkdtemp(); p = os.path.join(d, 's.json')
+        self.assertTrue(tv.write_json(p, {'a': 1, 'b': [2]}))
+        before = os.stat(p).st_ino, open(p).read()
+        self.assertFalse(tv.write_json(p, {'b': [2], 'a': 1}))
+        self.assertEqual((os.stat(p).st_ino, open(p).read()), before)
+        self.assertTrue(tv.write_json(p, {'a': 2}))
+        self.assertEqual(json.load(open(p)), {'a': 2})
+
+
+class Uninstalled(unittest.TestCase):
+    """Cinema removed from LG's Home: the tools take themselves out."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.saved = dict((k, getattr(tv, k)) for k in
+                          ('ROOT', 'STATE', 'CONF', 'PIDFILE', 'HOOKS', 'APP_DIR', 'HBC_DIR', 'UPDATE_JSON', 'WATCHDOG_PID'))
+        tv.ROOT = self.d
+        tv.STATE = os.path.join(self.d, 'tvtools-state.json'); tv.CONF = os.path.join(self.d, 'tvtools.json')
+        tv.PIDFILE = os.path.join(self.d, 'pid'); tv.WATCHDOG_PID = os.path.join(self.d, 'none.pid')
+        tv.HOOKS = [os.path.join(self.d, h) for h in ('55-cinema-tvtools', '45-cinema-tvtools-memory')]
+        tv.APP_DIR = os.path.join(self.d, 'apps', 'cinema'); tv.HBC_DIR = os.path.join(self.d, 'apps', 'hbchannel')
+        tv.UPDATE_JSON = os.path.join(self.d, 'update.json')
+        tv.UNINSTALL['misses'] = 0
+        for p in tv.HOOKS + [tv.STATE, tv.CONF]:
+            open(p, 'w').write('{}')
+        os.makedirs(os.path.join(self.d, 'tvtools')); os.makedirs(tv.HBC_DIR)
+
+    def tearDown(self):
+        for k, v in self.saved.items():
+            setattr(tv, k, v)
+        tv.UNINSTALL['misses'] = 0
+
+    def test_removed_only_when_the_apps_partition_is_there_and_no_update_runs(self):
+        self.assertTrue(tv.app_removed())
+        os.makedirs(tv.APP_DIR); open(os.path.join(tv.APP_DIR, 'appinfo.json'), 'w').write('{}')
+        self.assertFalse(tv.app_removed())
+        os.remove(os.path.join(tv.APP_DIR, 'appinfo.json')); os.rmdir(tv.HBC_DIR)
+        self.assertFalse(tv.app_removed(), 'partition not mounted: nothing is known')
+        import time as t
+        json.dump({'state': 'installing', 'at': int(t.time())}, open(tv.UPDATE_JSON, 'w'))
+        self.assertTrue(tv.update_in_progress())
+        json.dump({'state': 'installed', 'at': int(t.time())}, open(tv.UPDATE_JSON, 'w'))
+        self.assertFalse(tv.update_in_progress())
+        json.dump({'state': 'installing', 'at': int(t.time()) - 3600}, open(tv.UPDATE_JSON, 'w'))
+        self.assertFalse(tv.update_in_progress(), 'a stale installer is not waited for')
+
+    def test_three_misses_in_a_row_then_everything_goes(self):
+        exits = []
+        old_exit = os._exit; os._exit = lambda code: exits.append(code)
+        try:
+            tv.check_uninstalled(); tv.check_uninstalled()
+            self.assertEqual(exits, []); self.assertTrue(os.path.exists(tv.HOOKS[0]))
+            tv.check_uninstalled()
+        finally:
+            os._exit = old_exit
+        self.assertEqual(exits, [0])
+        for p in tv.HOOKS + [tv.STATE, tv.CONF, os.path.join(self.d, 'tvtools')]:
+            self.assertFalse(os.path.exists(p), p)
+
+    def test_a_short_absence_during_an_update_is_not_an_uninstall(self):
+        import time as t
+        json.dump({'state': 'installing', 'at': int(t.time())}, open(tv.UPDATE_JSON, 'w'))
+        for _ in range(5):
+            tv.check_uninstalled()
+        self.assertTrue(os.path.exists(tv.HOOKS[0]))
+        self.assertEqual(tv.UNINSTALL['misses'], 0)
+
 
 class RunDir(unittest.TestCase):
     def test_refuses_a_runtime_directory_others_can_write(self):

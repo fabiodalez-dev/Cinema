@@ -3,7 +3,7 @@
   "type": "web",
   "main": "index.html",
   "title": "Cinema Voce",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "vendor": "webOS Homebrew",
   "icon": "icon.png",
   "largeIcon": "icon.png",

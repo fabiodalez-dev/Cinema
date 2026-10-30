@@ -47,6 +47,7 @@ function typedComplete(list, typed) {
  *   tune(channel)  Promise; moves the tuner (the last channel)
  *   reopen()       reopens the embedded picture on the tuned channel
  *   banner(state)  {channel} | {typed} | {typed, missing: true} | {failed: channel}
+ *                  | {empty: true} (no channel tuned on this TV)
  *   delay          ms CH+/CH- presses are gathered before tuning (default 450)
  *   typeDelay      ms after the last digit before the number is taken (default 1800)
  */
@@ -92,7 +93,7 @@ export function createZapper(options) {
     if (!number) return Promise.resolve(false);
     return list().then(function (l) {
       const channel = channelByNumber(l, number);
-      if (!channel) { options.banner({typed: number, missing: true}); return false; }
+      if (!channel) { options.banner(l.length ? {typed: number, missing: true} : {empty: true}); return false; }
       aim(channel, 0);
       return true;
     });
@@ -106,6 +107,7 @@ export function createZapper(options) {
         const base = target || current;
         const next = stepChannel(zapChannels(l), base && base.id, delta);
         if (next) aim(next, delay);
+        else options.banner({empty: true});
         return next;
       });
     },

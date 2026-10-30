@@ -7,11 +7,23 @@ const onChannelDown = vi.fn();
 const onBlue = vi.fn();
 let root;
 
-function press(keyCode, key) {
-  const event = new KeyboardEvent('keydown', {key: key || '', bubbles: true, cancelable: true});
+function press(keyCode, key, repeat) {
+  const event = new KeyboardEvent('keydown', {key: key || '', bubbles: true, cancelable: true, repeat: !!repeat});
   Object.defineProperty(event, 'keyCode', {value: keyCode});
   document.dispatchEvent(event);
   return event;
+}
+
+// jsdom has no layout: give a tile a place on screen.
+function tileAt(x, index) {
+  const tile = document.createElement('button');
+  tile.type = 'button';
+  tile.className = 'app-tile focusable';
+  tile.dataset.focusIndex = String(index);
+  const rect = {left: x, top: 900, width: 80, height: 80, right: x + 80, bottom: 980, x: x, y: 900};
+  tile.getBoundingClientRect = function () { return rect; };
+  tile.getClientRects = function () { return [rect]; };
+  return tile;
 }
 
 beforeAll(() => {
@@ -135,5 +147,50 @@ describe('blue-key routing', () => {
     press(404);
     press(405);
     expect(onBlue).not.toHaveBeenCalled();
+  });
+});
+
+describe('spatial navigation on key repeat', () => {
+  it('moves once per animation frame while an arrow key repeats', async () => {
+    const grid = document.createElement('section');
+    grid.id = 'app-grid';
+    const first = tileAt(0, 0);
+    const second = tileAt(100, 1);
+    const third = tileAt(200, 2);
+    grid.appendChild(first);
+    grid.appendChild(second);
+    grid.appendChild(third);
+    root.appendChild(grid);
+    first.focus();
+    expect(document.activeElement).toBe(first);
+
+    press(39, 'ArrowRight');
+    expect(document.activeElement).toBe(second);
+
+    // A repeat in the same frame is dropped (still consumed).
+    const repeated = press(39, 'ArrowRight', true);
+    expect(repeated.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(second);
+
+    await new Promise(function (resolve) { requestAnimationFrame(resolve); });
+    press(39, 'ArrowRight', true);
+    expect(document.activeElement).toBe(third);
+  });
+
+  it('always moves on a fresh press', () => {
+    const grid = document.createElement('section');
+    grid.id = 'app-grid';
+    const first = tileAt(0, 0);
+    const second = tileAt(100, 1);
+    const third = tileAt(200, 2);
+    grid.appendChild(first);
+    grid.appendChild(second);
+    grid.appendChild(third);
+    root.appendChild(grid);
+    first.focus();
+
+    press(39, 'ArrowRight');
+    press(39, 'ArrowRight');
+    expect(document.activeElement).toBe(third);
   });
 });

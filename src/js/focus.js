@@ -225,20 +225,23 @@ export function createFocusManager(root, handlers) {
 
   // True when an element can actually take keyboard focus right now. Filters
   // out zero-size / hidden tiles that still report a layout rect (which fools
-  // spatial navigation into repeatedly targeting them).
-  function isFocusable(el) {
+  // spatial navigation into repeatedly targeting them). The cheap checks come
+  // first; `rect`, when the caller already has it, saves a second layout read.
+  // visibility is still asked of computed style last: Cinema hides whole
+  // regions (.cinema-media, .cinema-live-controls) with visibility:hidden, and
+  // their controls keep a size, so no other check sees them.
+  function isFocusable(el, rect) {
     if (!el) return false;
-    if (el.disabled) return false;
+    if (el.disabled || el.hidden) return false;
     if (el.tabIndex < 0) return false;
     if (typeof el.offsetParent !== 'undefined' && el.offsetParent === null) {
       // display:none (offsetParent null) — but position:fixed also reports
       // null, so double-check via getClientRects for those.
       if (!el.getClientRects || el.getClientRects().length === 0) return false;
     }
-    const style = window.getComputedStyle(el);
-    if (style.visibility === 'hidden' || style.display === 'none') return false;
-    const rect = el.getBoundingClientRect();
-    if (rect.width < 1 || rect.height < 1) return false;
+    const r = rect || el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return false;
+    if (window.getComputedStyle(el).visibility === 'hidden') return false;
     return true;
   }
 
@@ -1104,13 +1107,22 @@ export function createFocusManager(root, handlers) {
     let best = null;
     let bestScore = Infinity;
 
-    items.forEach(function (item) {
-      if (item === active) return;
-      if (!isFocusable(item)) return; // skip hidden/zero-size tiles that still report a rect
+    // One layout read per candidate, up front: the rects are taken in a single
+    // pass before any scoring, never interleaved with focus changes.
+    const candidates = [];
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      if (item === active) continue;
       // Don't spatial-nav into the settings overlay panel from the home dock.
-      if (focusRow(item) === 'settings') return;
-
+      if (focusRow(item) === 'settings') continue;
       const r = item.getBoundingClientRect();
+      if (!isFocusable(item, r)) continue; // skip hidden/zero-size tiles that still report a rect
+      candidates.push({item: item, rect: r});
+    }
+
+    candidates.forEach(function (candidate) {
+      const item = candidate.item;
+      const r = candidate.rect;
       const ix = r.left + r.width / 2;
       const iy = r.top + r.height / 2;
       const dx = ix - cx;
@@ -1173,6 +1185,20 @@ export function createFocusManager(root, handlers) {
         if (focusMainDockFirst()) return;
       }
     }
+  }
+
+  // Key repeat from a held D-pad arrow queues several keydowns per frame on a
+  // slow TV, each with its own layout pass over the dock. One spatial move per
+  // animation frame: repeats arriving before the next frame are dropped (a
+  // fresh press always moves).
+  let movedThisFrame = false;
+
+  function noteMoveFrame() {
+    movedThisFrame = true;
+    const raf = typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame
+      : function (fn) { setTimeout(fn, 16); };
+    raf(function () { movedThisFrame = false; });
   }
 
   function onKeyDown(event) {
@@ -1321,6 +1347,8 @@ export function createFocusManager(root, handlers) {
         return;
       }
       event.preventDefault();
+      if (event.repeat && movedThisFrame) return;
+      noteMoveFrame();
       const from = document.activeElement;
       moveDirection(code);
       // Remember home screen moves, so the opposite key can go straight back.

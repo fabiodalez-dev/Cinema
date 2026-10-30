@@ -17,7 +17,7 @@ Schermate del preview a 1920×1080, con dati personali omessi. La Home locale re
 
 ## Cosa offre
 
-- Film, serie, riprendi visione e album musicali Jellyfin, con cache e una Home locale sempre utilizzabile.
+- Film, serie, riprendi visione con i prossimi episodi e album musicali Jellyfin, con cache e una Home locale sempre utilizzabile. L'account si collega dalla TV con Quick Connect.
 - Live TV subito dietro ai controlli, selezione delle fonti e passaggio alla visione a schermo intero.
 - Scopri e richieste tramite Litefin e il servizio Seerr già configurato sul server.
 - Impostazioni a schermo intero: categorie con icone, righe grandi, interruttori e focus leggibile.

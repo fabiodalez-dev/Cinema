@@ -31,9 +31,34 @@ body {
   background: linear-gradient(135deg, #1a1028 0%, #3d1f2e 40%, #7a3b2e 100%);
   background-size: cover;
   background-position: center;
-  transition: background-image 1.2s ease;
   /* Never steal clicks meant for the settings gear / dock. */
   pointer-events: none;
+}
+
+/* Wallpaper change (background.js showPhoto): the next photo, already decoded,
+   fades in on this overlay above the layer that still shows the previous one;
+   then the layer takes it over and the overlay hides with no transition.
+   (A transition on background-image, used before, never animated anything,
+   so every slideshow change popped.) */
+.background-photo {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.background-photo.is-front {
+  opacity: 1;
+}
+
+.background-photo.is-settled {
+  transition: none;
 }
 
 #background-layer.has-image.ken-burns {
@@ -68,19 +93,36 @@ body {
   background: #0a0a0f;
 }
 
-#background-layer.gradient-animated {
-  animation: gradient-hue-shift 40s linear infinite;
+/* Animated gradient: two pre-coloured gradients crossfaded on opacity over
+   the chosen preset (compositor only). The hue-rotate filter it replaces
+   re-rendered the whole layer every frame for 40 s on end. */
+#background-layer.gradient-animated::before,
+#background-layer.gradient-animated::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  opacity: 0;
+  animation: gradient-drift 40s ease-in-out infinite;
 }
 
-@keyframes gradient-hue-shift {
-  0% {
-    filter: hue-rotate(0deg) saturate(1);
+#background-layer.gradient-animated::before {
+  background: linear-gradient(135deg, #10263f 0%, #1f4068 45%, #3b6978 100%);
+}
+
+#background-layer.gradient-animated::after {
+  background: linear-gradient(135deg, #2a1636 0%, #4a1942 45%, #7a3b2e 100%);
+  animation-delay: -20s;
+}
+
+@keyframes gradient-drift {
+  0%, 100% {
+    opacity: 0;
   }
   50% {
-    filter: hue-rotate(180deg) saturate(1.3);
-  }
-  100% {
-    filter: hue-rotate(360deg) saturate(1);
+    opacity: 1;
   }
 }
 
@@ -395,6 +437,10 @@ body.all-apps-open #background-layer.gradient-animated {
 
 .voice-indicator-glow {
   position: absolute;
+  top: -6px;
+  right: -6px;
+  bottom: -6px;
+  left: -6px;
   inset: -6px;
   border-radius: inherit;
   background: radial-gradient(circle at 30% 40%, rgba(90, 200, 255, 0.35), transparent 60%);
@@ -1779,6 +1825,10 @@ body.settings-open .settings-panel .ai-provider-card.focused {
 
 .ai-oauth-modal {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   z-index: 40;
   display: flex;
@@ -2375,6 +2425,10 @@ body.settings-open .settings-panel .ai-provider-card.focused {
 
 .photo-picker-tile .photo-picker-thumb {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   width: 100%;
   height: 100%;
@@ -2425,8 +2479,8 @@ body.settings-open .settings-panel .ai-provider-card.focused {
 .photo-picker-custom-hint {
   position: relative;
   z-index: 1;
-  font-size: 14px;
-  opacity: 0.65;
+  font-size: 18px;
+  opacity: 0.78;
   text-align: center;
   padding: 0 12px;
 }
@@ -2697,7 +2751,7 @@ body.settings-open .settings-panel .ai-provider-card.focused {
   padding: 14px 24px;
   border-radius: 12px;
   background: rgba(0, 0, 0, 0.8);
-  font-size: 18px;
+  font-size: 24px;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.25s ease, transform 0.25s ease;
@@ -2739,6 +2793,10 @@ body.settings-open .settings-panel .ai-provider-card.focused {
 
 .custom-screensaver {
   position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   z-index: 9000;
   display: flex;
@@ -2761,6 +2819,10 @@ body.settings-open .settings-panel .ai-provider-card.focused {
 
 .custom-screensaver-bg {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   background-color: #050508;
   background-size: cover;
@@ -2805,6 +2867,10 @@ body.settings-open .settings-panel .ai-provider-card.focused {
 /* Aerial clips fill the saver above the photo layers, under the scrim/clock. */
 .custom-screensaver-video {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   z-index: 1;
   width: 100%;
@@ -2821,6 +2887,10 @@ body.settings-open .settings-panel .ai-provider-card.focused {
 
 .custom-screensaver-scrim {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   z-index: 2;
   pointer-events: none;
@@ -2866,10 +2936,10 @@ body.settings-open .settings-panel .ai-provider-card.focused {
   bottom: 48px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 18px;
+  font-size: 20px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(255, 255, 255, 0.7);
   opacity: 0;
   animation: screensaver-hint-fade 8s ease 2s infinite;
   pointer-events: none;
@@ -3014,4 +3084,60 @@ body.perf-mode .custom-screensaver-bg.is-back {
 
 .settings-url-status.is-error {
   color: #ffb7a8;
+}
+
+/* Motion off (Settings -> Look, body.cinema-no-motion) and the system's
+   reduced-motion setting also still the wallpaper zoom, the animated
+   gradient, the screensaver's zoom and hint, the voice badge's pulse and the
+   photo fades. Last in the file: it must outrank the perf-mode screensaver
+   rules above, which keep that zoom on. */
+body.cinema-no-motion #background-layer.has-image.ken-burns,
+body.cinema-no-motion #background-layer.gradient-animated::before,
+body.cinema-no-motion #background-layer.gradient-animated::after,
+body.cinema-no-motion .custom-screensaver-bg.is-photo,
+body.cinema-no-motion .custom-screensaver-hint,
+body.cinema-no-motion .voice-indicator-mic,
+body.cinema-no-motion .voice-indicator-glow {
+  animation: none !important;
+}
+
+body.cinema-no-motion .background-photo,
+body.cinema-no-motion .custom-screensaver,
+body.cinema-no-motion .custom-screensaver-bg,
+body.cinema-no-motion .custom-screensaver-video,
+body.cinema-no-motion .voice-indicator {
+  transition: none !important;
+}
+
+/* The hint is shown by its animation; without one, keep it readable. */
+body.cinema-no-motion .custom-screensaver-hint {
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #background-layer.has-image.ken-burns,
+  #background-layer.gradient-animated::before,
+  #background-layer.gradient-animated::after,
+  .custom-screensaver-bg.is-photo,
+  body.perf-mode .custom-screensaver-bg.is-photo,
+  .custom-screensaver-hint,
+  .voice-indicator-mic,
+  .voice-indicator-glow {
+    animation: none !important;
+  }
+
+  .background-photo,
+  .custom-screensaver,
+  .custom-screensaver-bg,
+  body.perf-mode .custom-screensaver,
+  body.perf-mode .custom-screensaver-bg,
+  body.perf-mode .custom-screensaver-bg.is-back,
+  .custom-screensaver-video,
+  .voice-indicator {
+    transition: none !important;
+  }
+
+  .custom-screensaver-hint {
+    opacity: 0.7;
+  }
 }

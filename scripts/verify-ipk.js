@@ -3,6 +3,8 @@
 // Fail if an IPK's control/data tarballs stamp files at the Unix epoch.
 // @webosose/ares-cli on Node.js 22+ does that, and some TVs (webOS 5)
 // refuse to install the package. @webos-tools/cli is not affected.
+// Also fail if the package carries assets build.js is meant to leave out
+// (4K wallpapers, ambient MP3s, TTF sources): they are served from jsDelivr.
 
 const fs = require('fs');
 const path = require('path');
@@ -11,6 +13,13 @@ const zlib = require('zlib');
 const {readVersion} = require('./read-version');
 
 const EPOCH_CUTOFF = Date.UTC(2000, 0, 1) / 1000;
+
+// Repo-only assets (see ASSET_EXCLUDE in build.js), as paths inside the IPK.
+const EXCLUDED_ASSETS = [
+  /assets\/backgrounds\/[^/]+\.jpg$/,
+  /assets\/music\/.*\.mp3$/,
+  /assets\/fonts\/.*\.ttf$/
+];
 
 function parseAr(buf) {
   if (buf.subarray(0, 8).toString('ascii') !== '!<arch>\n') {
@@ -74,6 +83,7 @@ function gunzipTar(data, label) {
 function verifyIpk(ipkPath) {
   const members = parseAr(fs.readFileSync(ipkPath));
   const stale = [];
+  const excluded = [];
 
   for (let i = 0; i < members.length; i += 1) {
     const member = members[i];
@@ -94,7 +104,18 @@ function verifyIpk(ipkPath) {
           mtime: file.mtime
         });
       }
+      if (EXCLUDED_ASSETS.some(function (re) { return re.test(file.name); })) {
+        excluded.push(file.name);
+      }
     }
+  }
+
+  if (excluded.length) {
+    throw new Error(
+      path.basename(ipkPath) + ' packages ' + excluded.length +
+      ' asset(s) that belong to the repo only (served from jsDelivr):\n  ' +
+      excluded.slice(0, 8).join('\n  ')
+    );
   }
 
   if (stale.length) {
@@ -130,7 +151,8 @@ if (require.main === module) {
 
   try {
     verifyIpk(ipkPath);
-    console.log('verify-ipk: ' + path.basename(ipkPath) + ' file dates look valid');
+    const mb = (fs.statSync(ipkPath).size / (1024 * 1024)).toFixed(2);
+    console.log('verify-ipk: ' + path.basename(ipkPath) + ' (' + mb + ' MB) file dates and contents look valid');
   } catch (err) {
     console.error(err.message);
     process.exit(1);

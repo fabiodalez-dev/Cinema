@@ -22,15 +22,17 @@ mkdir -p /var/lib/webosbrew/init.d
 rm -f "$OLD_INITD"
 
 # Boot hook — detach with setsid when available, else nohup, else plain &.
-# Wait for applicationManager so we do not exit/fail on cold boot (webOS 4).
-cat >"$INITD" <<EOF
+# Wait for applicationManager so we do not exit/fail on cold boot (webOS 4):
+# a reply with returnValue, not luna-send's exit code (0 with nothing printed
+# while the service is not up). Rewritten only when its content changed.
+cat >"$INITD.part" <<EOF
 #!/bin/sh
 LOG="$LOG"
 WATCH="$WATCH"
 i=0
 while [ "\$i" -lt 60 ]; do
-  if luna-send -n 1 -f 'luna://com.webos.applicationManager/getForegroundAppInfo' '{"subscribe":true}' >/dev/null 2>&1 \\
-     || luna-send -i -n 1 -f 'luna://com.webos.applicationManager/getForegroundAppInfo' '{"subscribe":true}' >/dev/null 2>&1; then
+  if { luna-send -i -n 1 -w 4000 -f 'luna://com.webos.applicationManager/getForegroundAppInfo' '{"subscribe":true}' 2>/dev/null </dev/null \\
+       || luna-send -n 1 -f 'luna://com.webos.applicationManager/getForegroundAppInfo' '{"subscribe":true}' 2>/dev/null </dev/null; } | grep -q returnValue; then
     break
   fi
   i=\$((i + 1))
@@ -45,7 +47,8 @@ else
 fi
 exit 0
 EOF
-chmod 755 "$INITD"
+chmod 755 "$INITD.part"
+if cmp -s "$INITD.part" "$INITD" 2>/dev/null; then rm -f "$INITD.part"; else mv -f "$INITD.part" "$INITD"; fi
 
 # Stop prior instances (new + legacy pidfiles).
 for pf in "$PIDF" "$OLD_PIDF"; do

@@ -12,7 +12,7 @@
 .settings-panel .settings-tab{flex-shrink:0;display:grid;grid-template-columns:38px 1fr;grid-template-rows:auto auto;column-gap:20px;row-gap:4px;align-items:center;min-height:78px;padding:14px 20px;margin-bottom:5px;border:0;border-radius:18px;color:#b9bbc5;background:transparent}
 .settings-panel .settings-category-icon{width:30px;height:30px;grid-row:1/3;grid-column:1;opacity:.9}
 .settings-panel .settings-tab-label{font-size:27px;font-weight:500;letter-spacing:-.4px;grid-row:1;grid-column:2;line-height:1.2}
-.settings-panel .settings-tab-sub{font-size:17px;color:#9296a3;grid-row:2;grid-column:2;line-height:1.25}
+.settings-panel .settings-tab-sub{font-size:18px;color:#9296a3;grid-row:2;grid-column:2;line-height:1.25}
 .settings-panel .settings-tab.active{background:#2b303c;color:#e5eaf4}
 .settings-panel .settings-tab.active::before{display:none}
 .settings-panel .settings-tab.focused,.settings-panel .settings-tab:focus{color:#1b1d23;background:#e5e7ed;box-shadow:none;outline:0}
@@ -132,3 +132,18 @@ body.cinema-discover-open .cinema-hero,body.cinema-discover-open .cinema-media{v
 .cinema-discover[hidden]{display:none}
 .cinema-discover h1{font-size:62px;margin:24px 0 32px;color:#f1f2f5}
 .cinema-discover>p:not(.cinema-kicker){font-size:30px;line-height:1.5;max-width:1250px;color:#c3c7d0;margin:0 0 48px}
+
+/* quick connect */
+body.cinematic .cinema-live-banner-progress{display:block;height:6px;margin-top:10px;border-radius:3px;background:rgba(255,255,255,.25);overflow:hidden}
+body.cinematic .cinema-live-banner-progress[hidden]{display:none}
+body.cinematic .cinema-live-banner-progress i{display:block;height:100%;width:0;border-radius:3px;background:rgba(255,255,255,.85)}
+body.cinematic .cinema-live-banner-next{font-size:18px;color:#c9c9cf;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.cinematic .cinema-live-banner-next:empty{display:none}
+body.cinematic .clock-date{text-transform:none!important}
+.settings-panel .cinema-quick-connect{display:flex;flex-direction:column;gap:14px;margin:10px 0 6px}
+.settings-panel .cinema-quick-connect input[type=url]{width:100%;box-sizing:border-box;font-size:24px;padding:12px 16px;border-radius:12px;border:2px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:inherit}
+.settings-panel .cinema-quick-connect input[type=url].focused,.settings-panel .cinema-quick-connect input[type=url]:focus{border-color:#d9e5f4;outline:none}
+.settings-panel .cinema-quick-code{font-size:96px;font-weight:700;letter-spacing:14px;line-height:1.1;text-align:center;font-variant-numeric:tabular-nums;color:#f1f2f5;padding:18px 0 6px}
+.settings-panel .cinema-quick-code:empty{display:none}
+.settings-panel .cinema-quick-status{font-size:22px;color:#c3c7d0;margin:0}
+.settings-panel .cinema-quick-status:empty{display:none}

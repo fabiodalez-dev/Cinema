@@ -2,7 +2,8 @@ import {
   normalizeMusicConfig,
   resolveBuiltinPlaylist,
   BUILTIN_MUSIC_FALLBACK,
-  builtinTrackCandidates
+  builtinTrackCandidates,
+  builtinTrackUrl
 } from './builtin-music.js';
 import {discoverMusicTracks, isAudioFile} from './usb.js';
 import {subscribeVolume} from './luna.js';
@@ -344,6 +345,11 @@ export function createMusicPlayer(getConfig, elements) {
     }
 
     const src = urls[urlCandidateIndex];
+    // A streamed track with no network: don't start a load that can only fail.
+    if (isOffline() && /^https?:\/\//i.test(String(src))) {
+      waitForNetwork();
+      return;
+    }
     track.url = src;
     playGeneration += 1;
     const gen = playGeneration;
@@ -404,8 +410,49 @@ export function createMusicPlayer(getConfig, elements) {
     });
   }
 
+  // The built-in tracks stream from a CDN (builtin-music.js): with the TV
+  // offline there is nothing to play, and no point in retrying or blaming the
+  // audio player. Say so once and resume when the network is back.
+  function isOffline() {
+    return typeof navigator !== 'undefined' && navigator.onLine === false;
+  }
+
+  function isRemoteTrack(track) {
+    return candidateUrls(track).some(function (url) {
+      return /^https?:\/\//i.test(String(url));
+    });
+  }
+
+  let offlineToldAt = 0;
+  let offlineWaiting = false;
+
+  function waitForNetwork() {
+    try { audio.pause(); } catch (err) { /* ignore */ }
+    updateNowPlaying();
+    if (!document.hidden && Date.now() - offlineToldAt > 10 * 60 * 1000) {
+      offlineToldAt = Date.now();
+      showToast('Musica non disponibile offline: la TV non \u00e8 connessa a internet.');
+    }
+    if (offlineWaiting) return;
+    offlineWaiting = true;
+    window.addEventListener('online', function onBackOnline() {
+      window.removeEventListener('online', onBackOnline);
+      offlineWaiting = false;
+      urlCandidateIndex = 0;
+      if (document.hidden) {
+        retryOnReturn = true;
+        return;
+      }
+      if (queue.length && !userPaused) playCurrent();
+    });
+  }
+
   // Every URL for the current track failed to load.
   function trackFailed() {
+    if (isOffline() && isRemoteTrack(currentTrack())) {
+      waitForNetwork();
+      return;
+    }
     if (isBuiltinTrack(currentTrack())) {
       waitForPlayer();
       return;
@@ -425,14 +472,14 @@ export function createMusicPlayer(getConfig, elements) {
   function waitForPlayer() {
     if (busyRetry) return;
     if (busyTries === 0 && !document.hidden) {
-      showToast('Music is waiting: the TV\u2019s audio player is busy. It will try again.');
+      showToast('Musica in attesa: il lettore audio della TV \u00e8 occupato. Riprover\u00e0 tra poco.');
     }
     // Still nothing after ~3 minutes: the TV's media service has likely got
     // stuck (seen after hours of use). Only a full restart fixed it; with
     // Quick Start+ on, the remote's power button just suspends the TV.
     if (busyTries === 3 && !document.hidden) {
-      showToast('Still no sound from the TV\u2019s audio player. A full restart usually fixes it: ' +
-        'unplug the TV for a minute.');
+      showToast('Ancora nessun suono dal lettore audio della TV. Di solito si risolve con un riavvio ' +
+        'completo: stacca la spina della TV per un minuto.');
     }
     const delay = BUSY_RETRY_MS[Math.min(busyTries, BUSY_RETRY_MS.length - 1)];
     busyTries += 1;
@@ -461,12 +508,12 @@ export function createMusicPlayer(getConfig, elements) {
     skipCount += 1;
     if (skipCount >= Math.max(queue.length, 1) * 3) {
       // All candidates failed repeatedly — stop the skip storm.
-      showToast('Could not play ambient music');
+      showToast('Impossibile riprodurre la musica di sottofondo');
       pendingAutoplay = false;
       updateNowPlaying();
       return;
     }
-    showToast('Unsupported or missing track — skipping');
+    showToast('Traccia non supportata o mancante: passo alla successiva');
     nextTrack(true);
   }
 
@@ -504,7 +551,7 @@ export function createMusicPlayer(getConfig, elements) {
   function fallbackBuiltinTracks() {
     return BUILTIN_MUSIC_FALLBACK.map(function (entry) {
       return {
-        url: 'assets/music/' + entry.file,
+        url: builtinTrackUrl(entry.file),
         urls: builtinTrackCandidates(entry.file),
         title: entry.title || entry.id,
         artist: entry.artist || '',

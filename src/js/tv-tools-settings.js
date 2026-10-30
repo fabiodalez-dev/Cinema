@@ -209,8 +209,16 @@ export function mountUpdates(container, api, nextFocus) {
         button.disabled = false;
         return;
       }
+      if (p.state === 'rolled_back') {
+        text.textContent = info.name + ' · aggiornamento non riuscito, versione precedente ripristinata' + (p.error ? ': ' + p.error : '');
+        button.disabled = false;
+        return;
+      }
       text.textContent = info.name + ' · ' + (labels[p.state] || p.state) + (p.version ? ' ' + p.version : '') + '…';
     }
+    // Four minutes without a final state: say so instead of "avvio…" for good.
+    text.textContent = info.name + ' · nessun esito dopo 4 minuti: riapri Impostazioni → TV più tardi';
+    button.disabled = false;
   }
 
   api.check().then(function (result) {
@@ -351,7 +359,15 @@ export function mountTvToolsSettings(panel, api) {
         });
         const current = (conf.remoteKeys || {})[k];
         select.value = current === undefined ? KEEP_LG : current;
-        if (select.value !== (current === undefined ? KEEP_LG : current)) select.value = KEEP_LG;
+        if (select.value !== (current === undefined ? KEEP_LG : current)) {
+          // Mapped to an app that is not installed now: kept, and said, not
+          // silently reset to LG's action and dropped at the next Salva.
+          const o = document.createElement('option');
+          o.value = current;
+          o.textContent = 'App non installata: ' + current;
+          select.appendChild(o);
+          select.value = current;
+        }
         row.appendChild(select);
         rk.appendChild(row);
         controls.keys[k] = select;
@@ -382,8 +398,20 @@ export function mountTvToolsSettings(panel, api) {
       });
       if (consentChanges.length && api.consent) {
         state.textContent = 'Aggiornamento degli accordi…';
+        // Each one is tried; the ones LG refused are named instead of the
+        // loop stopping at the first with the rest silently left as before.
+        const failed = [];
         for (const c of consentChanges) {
-          await api.consent(c.key, controls.consent[c.key].checked);
+          try {
+            await api.consent(c.key, controls.consent[c.key].checked);
+          } catch (err) {
+            failed.push(consentLabel(c.key));
+          }
+        }
+        if (failed.length) {
+          state.textContent = 'Non applicati: ' + failed.join(', ') + '. Gli altri accordi sono aggiornati.';
+          refresh();
+          throw new Error('accordi non applicati: ' + failed.join(', '));
         }
         if (JSON.stringify(normalized(next)) === JSON.stringify(normalized(conf))) {
           state.textContent = 'Accordi aggiornati.';

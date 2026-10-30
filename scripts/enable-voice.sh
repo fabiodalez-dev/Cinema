@@ -23,10 +23,21 @@ if [ ! -f "$VOICE/daemon/voice_daemon.py" ] || [ ! -f "$RUN" ]; then
   echo missing_voice
   exit 1
 fi
-if ! command -v python3 >/dev/null 2>&1; then
+PY=$(command -v python3 || command -v python || true)
+if [ -z "$PY" ]; then
   echo missing_python
   exit 1
 fi
+# The daemon needs 3.7 up to 3.12 (this TV generation has 2.7 only): say so
+# in one parsable line and exit 0, so Cinema stops asking at every start.
+pyver=$("$PY" -c 'import sys; sys.stdout.write("%d.%d" % sys.version_info[:2])' 2>/dev/null)
+case "$pyver" in
+  3.7|3.8|3.9|3.10|3.11|3.12) ;;
+  *)
+    echo "python: unsupported ${pyver:-?}, need 3.7-3.12"
+    exit 0
+    ;;
+esac
 chmod 755 "$RUN" 2>/dev/null
 
 # Settings and the SuperGrok sign-in live here and stay when voice is off.
@@ -60,8 +71,8 @@ if [ -n "$want" ] && [ "$have" != "$want" ]; then
     if ! kill -0 "$installer" 2>/dev/null && [ "$i" -gt 10 ]; then
       break
     fi
-    sleep 0.5
-    i=$((i + 1))
+    sleep 1
+    i=$((i + 2))
   done
   kill "$installer" 2>/dev/null
   rm -f "$CARD_TMP"
@@ -73,9 +84,9 @@ if [ -n "$want" ] && [ "$have" != "$want" ]; then
   echo "card_installed=$want"
 fi
 
-# Start at power-on.
+# Start at power-on. Rewritten only when it changed (flash, every start).
 mkdir -p /var/lib/webosbrew/init.d
-cat >"$INITD" <<EOF
+cat >"$INITD.part" <<EOF
 #!/bin/sh
 # Launch Home voice assistant (turned on in Launch Home Settings > AI Voice).
 if [ -f "$RUN" ]; then
@@ -83,7 +94,8 @@ if [ -f "$RUN" ]; then
 fi
 exit 0
 EOF
-chmod 755 "$INITD"
+chmod 755 "$INITD.part"
+if cmp -s "$INITD.part" "$INITD" 2>/dev/null; then rm -f "$INITD.part"; else mv -f "$INITD.part" "$INITD"; fi
 
 # Start the daemon, or restart it when Launch Home was updated.
 state=$(sh "$RUN" status)
@@ -120,8 +132,8 @@ while [ "$i" -lt 40 ]; do
     echo "enabled listening pid=$(cat /tmp/launch-home-voice.pid 2>/dev/null)"
     exit 0
   fi
-  sleep 0.5
-  i=$((i + 1))
+  sleep 1
+  i=$((i + 2))
 done
 echo "enabled starting"
 exit 0

@@ -106,7 +106,8 @@ export function createChannelStrip(strip, getConfig, options) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'channel-chip focusable' + (extraClass ? ' ' + extraClass : '');
-    button.dataset.focusIndex = String(150 + strip.children.length);
+    // 170+: Cinema's tabs use 150-157, and the home orders by focusIndex.
+    button.dataset.focusIndex = String(170 + strip.children.length);
     const num = document.createElement('span');
     num.className = 'channel-number';
     num.textContent = number;
@@ -125,7 +126,7 @@ export function createChannelStrip(strip, getConfig, options) {
     return launchApp(LIVE_TV_ID).catch(function () {
       return launchAppViaRoot(LIVE_TV_ID);
     }).catch(function () {
-      if (opts.onToast) opts.onToast('Could not open Live TV');
+      if (opts.onToast) opts.onToast('Impossibile aprire Live TV');
     });
   }
 
@@ -135,23 +136,23 @@ export function createChannelStrip(strip, getConfig, options) {
     if (opts.onBeforeLaunch) opts.onBeforeLaunch();
     close();
     openTvChannel(channel).catch(function () {
-      if (opts.onToast) opts.onToast('Could not switch to ' + channel.name);
+      if (opts.onToast) opts.onToast('Impossibile passare a ' + channel.name);
     });
   }
 
   function render() {
     strip.innerHTML = '';
     // What's on now: a text preview (a web app can't show the tuner's picture).
-    const now = chip('Live TV', 'What’s on now…', 'channel-chip-now');
+    const now = chip('Live TV', 'In onda adesso…', 'channel-chip-now');
     now.button.addEventListener('click', openLiveTv);
     getTvChannelNow().then(function (info) {
       if (!open) return;
       const channel = [info.number, info.name].filter(Boolean).join(' ');
       now.label.textContent = channel
         ? channel + (info.programme ? ' · ' + info.programme : '')
-        : 'Watch Live TV';
+        : 'Guarda la TV';
     }).catch(function () {
-      now.label.textContent = 'Watch Live TV';
+      now.label.textContent = 'Guarda la TV';
     });
     shown().forEach(function (channel) {
       const c = chip(channel.number, channel.name);

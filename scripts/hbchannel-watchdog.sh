@@ -71,8 +71,11 @@ ppid_of() {
   return 1
 }
 
+# NAME with its dots escaped: pgrep -f takes a regex.
+NAME_RE="$(printf '%s' "$NAME" | sed 's/\./\\./g')"
+
 scan() {
-  pids=" $(pgrep -f "^$NAME( |\$)" | tr '\n' ' ') "
+  pids=" $(pgrep -f "^$NAME_RE( |\$)" | tr '\n' ' ') "
   for pid in $pids; do
     parent="$(ppid_of "$pid")" || continue
     case "$pids" in *" $parent "*) ;; *) continue ;; esac
@@ -121,10 +124,12 @@ case "$1" in
     pid="$(running_pid)" && kill "$pid" && echo "stopped $pid"
     ;;
   *)
+    # Through sh: the root copy in /var/lib/launch-home-cinema is 0600, and
+    # starting "$0" itself failed there without a word.
     if command -v setsid >/dev/null 2>&1; then
-      setsid nohup "$0" run >/dev/null 2>&1 </dev/null &
+      setsid nohup sh "$0" run >/dev/null 2>&1 </dev/null &
     else
-      nohup "$0" run >/dev/null 2>&1 </dev/null &
+      nohup sh "$0" run >/dev/null 2>&1 </dev/null &
     fi
     ;;
 esac
