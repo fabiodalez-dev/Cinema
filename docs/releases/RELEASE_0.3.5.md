@@ -18,7 +18,7 @@ Da Impostazioni → TV → Aggiornamenti, oppure con `org.webosbrew.lounge.launc
 
 ## Verifiche
 
-131 test JavaScript e 45 Python. Provata su una LG 43UN70006LA con webOS 5.6.2 con riavvii completi: logo LG fino a 20 secondi, due secondi di nero, Live TV fino a 42 secondi, poi Cinema, che resta davanti fino alla fine dell'avvio di LG e oltre.
+131 test JavaScript e 41 Python. Provata su una LG 43UN70006LA con webOS 5.6.2 con riavvii completi: logo LG fino a 20 secondi, due secondi di nero, Live TV fino a 42 secondi, poi Cinema, che resta davanti fino alla fine dell'avvio di LG e oltre.
 
 ## Limiti noti
 
