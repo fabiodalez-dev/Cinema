@@ -45,9 +45,13 @@ run_disable() {
   return 1
 }
 
+# kill_pidfile FILE WORD: stop the process a pid file names, only when its
+# command line contains WORD. Pid files in /tmp can be written by any user;
+# a pid alone would let one of them pick what root kills.
 kill_pidfile() {
   p=$(cat "$1" 2>/dev/null)
-  if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then
+  case "$p" in ''|*[!0-9]*) rm -f "$1"; return 0 ;; esac
+  if tr '\0' ' ' 2>/dev/null <"/proc/$p/cmdline" | grep -q -- "$2"; then
     kill "$p" 2>/dev/null || true
   fi
   rm -f "$1"
@@ -57,12 +61,12 @@ kill_pidfile() {
 say "home watcher and boot launch"
 run_disable disable-home-watcher.sh || {
   rm -f "$INITD/40-launch-home-watcher" "$INITD/40-lounge-home"
-  kill_pidfile /tmp/launch-home-watcher.pid
-  kill_pidfile /tmp/lounge-home-watcher.pid
+  kill_pidfile /tmp/launch-home-watcher.pid home-watcher.sh
+  kill_pidfile /tmp/lounge-home-watcher.pid home-watcher.sh
 }
 run_disable disable-boot-launch.sh || {
   rm -f "$INITD/50-launch-home-boot" "$INITD/50-lounge-boot"
-  kill_pidfile /tmp/launch-home-boot.pid
+  kill_pidfile /tmp/launch-home-boot.pid boot-launch.sh
 }
 rm -f /tmp/launch-home-user-input
 
@@ -72,7 +76,11 @@ run_disable disable-voice.sh || {
   rm -f "$INITD/45-launch-home-voice"
   for pf in /tmp/launch-home-voice-run.pid /tmp/launch-home-voice.pid; do
     p=$(cat "$pf" 2>/dev/null)
-    [ -n "$p" ] && { kill -TERM -"$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null; }
+    case "$p" in ''|*[!0-9]*) rm -f "$pf"; continue ;; esac
+    # Only Cinema's own voice processes, never whatever pid the file names.
+    if tr '\0' ' ' 2>/dev/null <"/proc/$p/cmdline" | grep -q -E 'voice-run\.sh|voice_daemon\.py'; then
+      kill -TERM -"$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null
+    fi
     rm -f "$pf"
   done
   rm -f /tmp/launch-home-voice.ver /tmp/voiceinput_disable_set_input_event
@@ -83,14 +91,14 @@ run_disable disable-voice.sh || {
 # LG has everything back before Cinema is removed.
 say "tv tools"
 if [ -n "$PY" ] && [ -f "$ROOT/tvtools/tvtools.py" ]; then
-  kill_pidfile /run/cinema-tvtools/tvtools.pid
+  kill_pidfile /run/cinema-tvtools/tvtools.pid tvtools.py
   "$PY" "$ROOT/tvtools/tvtools.py" uninstall </dev/null >/dev/null 2>&1 || true
 else
   run_disable disable-tvtools.sh || true
 fi
 rm -f "$INITD/55-cinema-tvtools" "$INITD/45-cinema-tvtools-memory" "$INITD/55-hbchannel-watchdog"
 [ -f "$ROOT/tvtools/hbchannel-watchdog.sh" ] && sh "$ROOT/tvtools/hbchannel-watchdog.sh" stop >/dev/null 2>&1
-kill_pidfile /tmp/hbchannel-watchdog/watchdog.pid
+kill_pidfile /tmp/hbchannel-watchdog/watchdog.pid hbchannel-watchdog.sh
 luna luna://com.webos.service.activitymanager/cancel \
   "{\"activityName\":\"$APP_ID.failsafe-check\"}" >/dev/null
 rm -f "$ROOT/failsafe-rebooted" "$ROOT/tvtools.json" "$ROOT/tvtools-state.json" "$ROOT/keyfilter.js"

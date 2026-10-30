@@ -601,11 +601,13 @@ export function rootWriteCommands(path, text) {
   const CHUNK = 24000;
   const cmds = [];
   for (let i = 0; i === 0 || i < text.length; i += CHUNK) {
-    cmds.push((i === 0 ? 'mkdir -p ' + shQuote(dir) + ' && ' : '') +
+    // umask 077: the file (and a missing folder) is root-only from its first
+    // byte; the text may be a credential (Jellyfin) or a settings backup.
+    cmds.push('umask 077 && ' + (i === 0 ? 'mkdir -p ' + shQuote(dir) + ' && ' : '') +
       'printf %s ' + shQuote(text.slice(i, i + CHUNK)) +
       (i === 0 ? ' > ' : ' >> ') + shQuote(part) + ' && echo written');
   }
-  cmds.push('mv -f ' + shQuote(part) + ' ' + shQuote(path) + ' && echo written');
+  cmds.push('umask 077 && mv -f ' + shQuote(part) + ' ' + shQuote(path) + ' && echo written');
   return cmds;
 }
 
@@ -619,7 +621,10 @@ export async function writeFileAsRoot(path, text, mode) {
     if (out.indexOf('written') < 0) throw new Error(out.split('\n')[0] || 'scrittura non riuscita');
   }
   if (mode && /^[0-7]{3,4}$/.test(String(mode))) {
-    await rootScriptOutput(execRoot('chmod ' + mode + ' ' + shQuote(path) + ' && echo ok', 5000));
+    // A mode that cannot be set leaves no file behind.
+    const out = await rootScriptOutput(execRoot('chmod ' + mode + ' ' + shQuote(path) + ' && echo ok || { rm -f ' +
+      shQuote(path) + '; echo failed; }', 5000));
+    if (out.indexOf('ok') < 0) throw new Error('permessi non applicati: ' + path);
   }
 }
 
