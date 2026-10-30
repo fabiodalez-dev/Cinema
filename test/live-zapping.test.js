@@ -58,3 +58,12 @@ describe('Live TV zapping',()=>{
   vi.advanceTimersByTime(1000);await flush();expect(calls.tune).toEqual([]);
  });
 });
+describe('Live TV zapping without channels',()=>{
+ it('tells the banner there is nothing tuned on CH+/CH- or a typed number',async()=>{
+  vi.useFakeTimers();const calls=[];
+  const z=createZapper({channels:()=>Promise.resolve([]),currentId:()=>Promise.resolve(''),tune:()=>Promise.resolve(),reopen:()=>{},banner:s=>calls.push(s)});
+  expect(await z.step(1)).toBeNull();expect(calls.pop()).toEqual({empty:true});
+  await z.digit(5);await flush();vi.advanceTimersByTime(1800);await flush();
+  expect(calls.pop()).toEqual({empty:true});
+ });
+});

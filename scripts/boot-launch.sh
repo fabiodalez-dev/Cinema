@@ -108,11 +108,29 @@ bring_up() {
   return 1
 }
 
+# Cinema touches this marker right before it opens an input itself (Live, an
+# HDMI tile): an input in front within 90 s of it is the owner's choice.
+USER_INPUT_MARK="/tmp/launch-home-user-input"
+
+# True when the marker is younger than 90 s. busybox stat/date differ by
+# build: mtime via stat, else date -r, else find -mmin.
+user_chose_input() {
+  [ -e "$USER_INPUT_MARK" ] || return 1
+  mt=$(stat -c %Y "$USER_INPUT_MARK" 2>/dev/null || date -r "$USER_INPUT_MARK" +%s 2>/dev/null)
+  now=$(date +%s 2>/dev/null)
+  if [ -n "$mt" ] && [ -n "$now" ]; then
+    [ $((now - mt)) -lt 90 ]
+    return $?
+  fi
+  [ -n "$(find /tmp -maxdepth 1 -name launch-home-user-input -mmin -2 2>/dev/null)" ]
+}
+
 # After Cinema is in front, LG's last-input handler can still bring the last
 # input back over it: at boot about 20 s later (Live TV launched with
 # "mode":"last_input" by last_input_handler, seen on webOS 5.6), and after a
 # wake. For $1 seconds, put Cinema back when Live TV or an HDMI/AV input takes
-# the front; any other app means the owner chose it, and the guard stops.
+# the front; any other app means the owner chose it, and the guard stops. An
+# input the owner opened from Cinema (see USER_INPUT_MARK) stops it too.
 guard_front() {
   until=$(( $(cut -d. -f1 /proc/uptime 2>/dev/null || echo 0) + $1 ))
   while [ "$(cut -d. -f1 /proc/uptime 2>/dev/null || echo 0)" -lt "$until" ]; do
@@ -121,6 +139,10 @@ guard_front() {
     case "$fg" in
       "$APP_ID"|"") ;;
       com.webos.app.livetv|com.webos.app.hdmi*|com.webos.app.inputcommon|com.webos.app.externalinput.*)
+        if user_chose_input; then
+          log "guard stopped: owner chose input $fg"
+          return 0
+        fi
         log "input $fg came back over Launch Home, launching it again"
         luna_once 'luna://com.webos.applicationManager/launch' "{\"id\":\"${APP_ID}\"}" >/dev/null 2>&1 || true
         ;;
@@ -161,7 +183,22 @@ watch_wakes() {
         log "power state: ${last:-?} -> $state"
         case "$last" in
           Suspend|"Active Standby")
-            [ "$state" = "Active" ] && bring_up 15 && guard_front 40
+            # What is in front the moment the TV reports Active says how it
+            # woke: Cinema or nothing means the power key (or a timer), so
+            # Cinema is brought up and guarded; Live TV or an input already
+            # there means a wake by CEC (a console, a decoder) or the source
+            # key, and the owner wants that input: nothing is done.
+            if [ "$state" = "Active" ]; then
+              wake_fg=$(foreground_app)
+              case "$wake_fg" in
+                com.webos.app.livetv|com.webos.app.hdmi*|com.webos.app.inputcommon|com.webos.app.externalinput.*)
+                  log "woke on input $wake_fg (CEC or source key): left alone"
+                  ;;
+                *)
+                  bring_up 15 && guard_front 40
+                  ;;
+              esac
+            fi
             ;;
         esac
         last=$state
@@ -184,7 +221,9 @@ if [ "$1" != "--wake-only" ]; then
   # Wait up to ~3 minutes for the app framework after power-on.
   i=0
   while [ "$i" -lt 90 ]; do
-    if luna_once 'luna://com.webos.applicationManager/getForegroundAppInfo' '{"subscribe":true}' >/dev/null 2>&1; then
+    # luna-send can exit 0 with nothing printed while the service is not up
+    # yet: only a reply with returnValue counts.
+    if luna_once 'luna://com.webos.applicationManager/getForegroundAppInfo' '{"subscribe":true}' 2>/dev/null | grep -q returnValue; then
       log "ls2 ready after $((i * 2))s"
       break
     fi

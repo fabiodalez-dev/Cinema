@@ -88,8 +88,21 @@ def open_private(path, flags):
     return os.fdopen(os.open(path, flags | os.O_NOFOLLOW, 0o600), 'a' if flags & os.O_APPEND else 'w')
 
 
+LOG_MAX = 65536
+
+
 def log(msg):
     try:
+        # Bounded like hbchannel-watchdog.sh's log: past 64 KB only the tail stays.
+        try:
+            if os.path.getsize(LOG) > LOG_MAX:
+                with open(LOG) as f:
+                    tail = f.readlines()[-200:]
+                with open_private(LOG + '.tmp', os.O_WRONLY | os.O_CREAT | os.O_TRUNC) as f:
+                    f.writelines(tail)
+                os.rename(LOG + '.tmp', LOG)
+        except OSError:
+            pass
         with open_private(LOG, os.O_WRONLY | os.O_CREAT | os.O_APPEND) as f:
             f.write(time.strftime('%H:%M:%S ') + msg + '\n')
     except Exception:
@@ -105,11 +118,21 @@ def read_json(path, default):
 
 
 def write_json(path, data):
+    """Written only when the content changes: the state file lives on flash
+    and is rewritten at every apply."""
+    text = json.dumps(data, sort_keys=True)
+    try:
+        with open(path) as f:
+            if f.read() == text:
+                return False
+    except (IOError, OSError):
+        pass
     tmp = path + '.tmp'
     with open(tmp, 'w') as f:
-        json.dump(data, f)
+        f.write(text)
     os.chmod(tmp, 0o600)
     os.rename(tmp, path)
+    return True
 
 
 def luna(uri, payload, wait=5000):
@@ -164,13 +187,39 @@ def preload_target(lg, off):
     return out
 
 
+def merge_preload_baseline(baseline, current):
+    """LG's own list as first seen, brought up to date with the list now: apps
+    LG added since are taken as they are, apps gone are dropped, the rest keep
+    the isEnabled LG had (ours may have changed the current one)."""
+    kept = dict((e.get('id'), e) for e in baseline or [] if isinstance(e, dict))
+    out = []
+    for e in current:
+        if not isinstance(e, dict):
+            continue
+        o = dict(e)
+        if e.get('id') in kept:
+            o['isEnabled'] = kept[e.get('id')].get('isEnabled')
+        out.append(o)
+    return out
+
+
+def boot_id():
+    try:
+        with open('/proc/sys/kernel/random/boot_id') as f:
+            return f.read().strip()
+    except (IOError, OSError):
+        return None
+
+
 def apply_preload(conf, state):
     current = preload_list()
     if current is None:
         return
-    if not state.get('preloadLg'):
-        # LG's own list, kept once, to switch apps back to LG's setting.
-        state['preloadLg'] = current
+    # LG's own list, kept to switch apps back to LG's setting, merged by id
+    # with the list of today (apps come and go with LG's updates).
+    merged = merge_preload_baseline(state.get('preloadLg'), current)
+    if merged != state.get('preloadLg'):
+        state['preloadLg'] = merged
         write_json(STATE, state)
     lg = state['preloadLg']
     target = preload_target(lg, set(conf['preloadOff']))
@@ -180,12 +229,28 @@ def apply_preload(conf, state):
     # Takes effect at once on newer firmware. On webOS 5 the call never answers
     # and changes nothing: the configd list counts from the next restart. The
     # preload manager must not be restarted to apply it sooner: on webOS 5
-    # that closes every app in use.
+    # that closes every app in use. When the first call gets no answer the
+    # rest are skipped (each would wait its 1.5 s) and it is tried again once
+    # per boot only.
+    boot = boot_id()
+    if state.get('preloadPolicyUnsupported') and state.get('preloadPolicyCheckedBoot') == boot:
+        return
+    first = True
     for e in target:
         if e.get('id') in ESSENTIAL:
             continue
-        luna('luna://com.webos.service.preloadmanager/setPreloadPolicy',
-             {'application': {'id': e['id'], 'isEnabled': bool(e.get('isEnabled'))}}, wait=1500)
+        r = luna('luna://com.webos.service.preloadmanager/setPreloadPolicy',
+                 {'application': {'id': e['id'], 'isEnabled': bool(e.get('isEnabled'))}}, wait=1500)
+        if first:
+            first = False
+            unsupported = not r
+            if unsupported != bool(state.get('preloadPolicyUnsupported')):
+                log('setPreloadPolicy %s' % ('does not answer: skipped' if unsupported else 'answers again'))
+            state['preloadPolicyUnsupported'] = unsupported
+            state['preloadPolicyCheckedBoot'] = boot
+            write_json(STATE, state)
+            if unsupported:
+                return
 
 
 # ---- LG settings ----------------------------------------------------------
@@ -627,11 +692,18 @@ def set_consent(key, on):
 # ---- daily power-off ---------------------------------------------------------
 # Settings -> TV -> Spegnimento programmato: every day at HH:MM the TV is
 # switched off as the remote's power key does, if it is on then. A notice is
-# shown a minute before. Checked against the TV's own clock every 20 s, so a
-# clock set late after a power cut only delays it.
+# shown a minute before. Checked against the TV's own clock every 20 s: a
+# check fires when the minute was reached or passed since the check before
+# (a DST jump or a slow loop cannot skip it), once a day (local date). Nothing
+# is done in the first 10 minutes after boot, nor until the clock is trusted:
+# the TV's RTC starts from a stale time after a power cut.
 
 TIME_RE = __import__('re').compile(r'^([01]\d|2[0-3]):([0-5]\d)$')
 ON_STATES = ('Active', 'Screen Off', 'Screen Saver')
+MIN_UPTIME = 600
+# A gap this long between two checks (clock set, daemon paused) is not a
+# window to catch up on: only the exact minute counts then.
+MAX_GAP = 600
 
 
 def clean_time(value):
@@ -643,19 +715,82 @@ def minutes_of(hhmm):
     return int(h) * 60 + int(m)
 
 
-def power_off_due(at, now_struct, done_day, warned_day):
+def due(now_struct, last_struct, target_hhmm, done_date):
+    """True when target_hhmm (local) was reached or passed between last_struct
+    (the check before, None at the first one) and now_struct, and it was not
+    done yet on now's date."""
+    if not target_hhmm:
+        return False
+    if done_date == time.strftime('%Y-%m-%d', now_struct):
+        return False
+    target = minutes_of(target_hhmm)
+    now = now_struct.tm_hour * 60 + now_struct.tm_min
+    if last_struct is None:
+        return now == target
+    try:
+        gap = time.mktime(now_struct) - time.mktime(last_struct)
+    except (OverflowError, ValueError):
+        gap = MAX_GAP + 1
+    if gap < 0 or gap > MAX_GAP:
+        return now == target
+    last = last_struct.tm_hour * 60 + last_struct.tm_min
+    if now == last:
+        return now == target
+    if now > last:
+        return last < target <= now
+    return target > last or target <= now  # past midnight
+
+
+def power_off_due(at, now_struct, done_day, warned_day, last_struct=None):
     """What to do now for a power-off at `at` (HH:MM): 'warn' a minute before,
     'off' at the minute, None otherwise; once per day each."""
     if not at:
         return None
-    day = time.strftime('%Y-%m-%d', now_struct)
-    now = now_struct.tm_hour * 60 + now_struct.tm_min
-    target = minutes_of(at)
-    if now == target and done_day != day:
+    if due(now_struct, last_struct, at, done_day):
         return 'off'
-    if now == (target - 1) % 1440 and warned_day != day and done_day != day:
+    day = time.strftime('%Y-%m-%d', now_struct)
+    warn_at = '%02d:%02d' % divmod((minutes_of(at) - 1) % 1440, 60)
+    if done_day != day and due(now_struct, last_struct, warn_at, warned_day):
         return 'warn'
     return None
+
+
+def uptime_seconds():
+    try:
+        with open('/proc/uptime') as f:
+            return float(f.read().split()[0])
+    except Exception:
+        return None
+
+
+def clock_trusted(reply, year, uptime):
+    """Whether the clock can be trusted, from systemservice's clock/getTime
+    reply: a source other than the RTC (micom) or a manual one, or a time
+    source set from NTP or the broadcast. Without a usable reply, a sane year
+    on a TV up long enough to have synced."""
+    if isinstance(reply, dict) and reply.get('returnValue') is not False:
+        src = str(reply.get('source') or '').lower()
+        sys_src = str(reply.get('systemTimeSource') or reply.get('utcSource') or '').lower()
+        if src or sys_src:
+            if any(k in sys_src for k in ('ntp', 'broadcast', 'network', 'tv')):
+                return True
+            return src not in ('', 'micom', 'local', 'manual', 'rtc')
+    return bool(year and year >= 2024 and uptime is not None and uptime >= MIN_UPTIME)
+
+
+CLOCK = {'ok': False}
+
+
+def clock_reliable():
+    """Cached once true: the clock does not get worse while the TV is on."""
+    if CLOCK['ok']:
+        return True
+    r = luna('luna://com.webos.service.systemservice/clock/getTime', {}, wait=3000)
+    ok = clock_trusted(r, time.localtime().tm_year, uptime_seconds())
+    if ok:
+        CLOCK['ok'] = True
+        log('clock trusted (%s)' % (r.get('source') or r.get('systemTimeSource') or 'fallback'))
+    return ok
 
 
 def tv_power_state():
@@ -674,11 +809,17 @@ def toast(message):
 
 def power_off_loop():
     done = {'day': None, 'warned': None}
+    last = None
     while True:
         try:
+            check_uninstalled()
             at = load_conf()['powerOffAt']
             now = time.localtime()
-            action = power_off_due(at, now, done['day'], done['warned'])
+            action = None
+            up = uptime_seconds()
+            if at and (up is None or up >= MIN_UPTIME) and clock_reliable():
+                action = power_off_due(at, now, done['day'], done['warned'], last)
+            last = now
             day = time.strftime('%Y-%m-%d', now)
             if action and tv_power_state() in ON_STATES:
                 if action == 'warn':
@@ -695,6 +836,84 @@ def power_off_loop():
         except Exception as e:
             log('power-off check: %s' % e)
         time.sleep(20)
+
+
+# ---- Cinema uninstalled -------------------------------------------------------
+# Removing Cinema from LG's Home leaves the root copy, its boot hooks and the
+# daemon behind, with nothing to switch them off. So the daemon (at start and
+# every 20 s) and the boot hook look for Cinema's appinfo.json: gone, while
+# Homebrew Channel's own folder on the same partition is there (so the
+# partition is mounted) and no update of Cinema is running (the installer
+# takes the folder away for a moment), everything is given back to LG and
+# removed.
+
+APPS_DIR = '/media/developer/apps/usr/palm/applications'
+APP_DIR = os.path.join(APPS_DIR, 'org.webosbrew.lounge.launcher')
+HBC_DIR = os.path.join(APPS_DIR, 'org.webosbrew.hbchannel')
+HOOKS = ['/var/lib/webosbrew/init.d/55-cinema-tvtools', '/var/lib/webosbrew/init.d/45-cinema-tvtools-memory',
+         '/var/lib/webosbrew/init.d/55-hbchannel-watchdog']
+UPDATE_JSON = os.path.join(RUN, 'update.json')
+WATCHDOG_PID = '/tmp/hbchannel-watchdog/watchdog.pid'
+EMPTY_CONF = {'preloadOff': [], 'settingsOff': [], 'servicesOff': [], 'keepInMemory': [], 'remoteKeys': {},
+              'powerOffAt': None}
+UNINSTALL = {'misses': 0}
+
+
+def app_removed():
+    return os.path.isdir(HBC_DIR) and not os.path.isfile(os.path.join(APP_DIR, 'appinfo.json'))
+
+
+def update_in_progress():
+    p = read_json(UPDATE_JSON, {})
+    return isinstance(p, dict) and p.get('state') in ('checking', 'downloading', 'installing') \
+        and time.time() - (p.get('at') or 0) < 900
+
+
+def check_uninstalled():
+    """Every 20 s from the daemon: three checks in a row without Cinema."""
+    if app_removed() and not update_in_progress():
+        UNINSTALL['misses'] += 1
+        if UNINSTALL['misses'] >= 3:
+            log('Cinema is no longer installed: TV tools switched off and removed')
+            self_uninstall()
+            os._exit(0)
+    else:
+        UNINSTALL['misses'] = 0
+
+
+def kill_pidfile(path, word):
+    try:
+        pid = int(open(path).read().strip())
+        with open('/proc/%d/cmdline' % pid) as f:
+            if word in f.read():
+                os.kill(pid, 15)
+    except Exception:
+        pass
+
+
+def self_uninstall():
+    """Everything back to LG, then the hooks, the activity, the state and the
+    root copy removed. Also what disable-tvtools.sh runs."""
+    state = read_json(STATE, {})
+    for step in (lambda: apply_memory(EMPTY_CONF, state), lambda: apply_preload(EMPTY_CONF, state),
+                 lambda: restore_settings(EMPTY_CONF, state), lambda: apply_services(EMPTY_CONF, state),
+                 lambda: apply_keys(EMPTY_CONF, remove=True)):
+        try:
+            step()
+        except Exception as e:
+            log('restore step failed: %s' % e)
+    for path in HOOKS + [STATE, CONF, PIDFILE, os.path.join(ROOT, 'failsafe-rebooted')]:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    kill_pidfile(WATCHDOG_PID, 'hbchannel-watchdog')
+    luna('luna://com.webos.service.activitymanager/cancel',
+         {'activityName': 'org.webosbrew.lounge.launcher.failsafe-check'})
+    import shutil
+    shutil.rmtree(os.path.join(ROOT, 'updates'), ignore_errors=True)
+    shutil.rmtree(os.path.join(ROOT, 'tvtools'), ignore_errors=True)
+    log('tools removed')
 
 
 # ---- entry points -----------------------------------------------------------
@@ -755,8 +974,12 @@ def daemon_running():
 
 
 def subscribe(uri, payload, on_reply):
-    """Follows a luna subscription; restarts it if luna-send exits."""
+    """Follows a luna subscription; restarts it if luna-send exits. One that
+    ends without a reply is retried with a growing pause (10 s up to 60 s),
+    logged when it goes down and when it is back, not at every try."""
+    down = 0
     while True:
+        replies = 0
         try:
             p = subprocess.Popen(['luna-send', '-i', uri, json.dumps(payload)],
                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=open(os.devnull, 'w'))
@@ -770,19 +993,35 @@ def subscribe(uri, payload, on_reply):
                         buf = ''
                     continue
                 buf = ''
+                replies += 1
+                if down:
+                    log('subscription %s back' % uri)
+                    down = 0
                 try:
                     on_reply(msg)
                 except Exception as e:
                     log('handler error: %s' % e)
             p.wait()
         except Exception as e:
-            log('subscription %s: %s' % (uri, e))
-        time.sleep(10)
+            if not down:
+                log('subscription %s: %s' % (uri, e))
+        if replies:
+            down = 0
+            time.sleep(10)
+            continue
+        down += 1
+        if down == 1:
+            log('subscription %s not answering, retrying' % uri)
+        time.sleep(min(10 * (2 ** (down - 1)), 60))
 
 
 def daemon():
     if daemon_running():
         print('already running')
+        return
+    if app_removed() and not update_in_progress():
+        log('Cinema is no longer installed: TV tools switched off and removed')
+        self_uninstall()
         return
     with open_private(PIDFILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC) as f:
         f.write(str(os.getpid()))
@@ -836,6 +1075,8 @@ if __name__ == '__main__':
         apply_keys(load_conf(), remove=True)
     elif cmd == 'memory':
         apply_memory(load_conf(), read_json(STATE, {}), boot=True)
+    elif cmd == 'uninstall':
+        self_uninstall()
     elif cmd == 'daemon':
         daemon()
     else:

@@ -37,10 +37,14 @@ function scheduleRetry() {
   if (stopped || !enabled) return;
   clearTimeout(retryTimer);
   retryCount += 1;
-  // First retries are aggressive so a dropped sessionStarted is recovered fast.
-  const delay = retryCount <= 3
+  // First retries are aggressive so a dropped sessionStarted is recovered
+  // fast; a daemon that is simply not there (no Python 3 on this TV) is then
+  // tried once a minute, and not at all while another app is in front.
+  let delay = retryCount <= 3
     ? 80 * retryCount
     : Math.min(4000, 200 + retryCount * 150);
+  if (retryCount > 12) delay = 60000;
+  if (typeof document !== 'undefined' && document.hidden) delay = Math.max(delay, 60000);
   retryTimer = setTimeout(function () {
     connect().catch(function () { /* next retry is already scheduled */ });
   }, delay);

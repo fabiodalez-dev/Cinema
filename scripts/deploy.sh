@@ -17,6 +17,9 @@
 #   ARES_DEVICE      ares device name (default: the ares default device)
 #   LAUNCH           1 or 0 — launch the app after install (default: 1)
 #   INSTALL_TIMEOUT  seconds to wait for the install (default: 90)
+#   REMOTE_TMP       where the IPK is staged on the TV (default: a root-only
+#                    directory under /var/lib/launch-home-cinema; set
+#                    /media/developer/temp if the TV's appinstalld refuses it)
 
 set -euo pipefail
 
@@ -28,7 +31,9 @@ LAUNCH="${LAUNCH:-1}"
 INSTALL_TIMEOUT="${INSTALL_TIMEOUT:-90}"
 
 APP_ID="org.webosbrew.lounge.launcher"
-REMOTE_TMP="/media/developer/temp"
+# Root-only (0700): /media/developer/temp is writable by every app, which
+# could swap the package before appinstalld (root) reads it.
+REMOTE_TMP="${REMOTE_TMP:-/var/lib/launch-home-cinema/stage}"
 
 c_grn() { printf '\033[32m%s\033[0m' "$*"; }
 c_red() { printf '\033[31m%s\033[0m' "$*"; }
@@ -50,10 +55,10 @@ TARGET="${DEV_USER}@${DEV_HOST}"
 
 printf "  Device: %s (%s)\n" "$(c_grn "$DEV_NAME")" "$TARGET:$DEV_PORT"
 
-SSH_BASE=(-o BatchMode=yes -o StrictHostKeyChecking=no -o LogLevel=ERROR -p "$DEV_PORT" -i "$SSH_KEY_PATH")
+SSH_BASE=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o LogLevel=ERROR -p "$DEV_PORT" -i "$SSH_KEY_PATH")
 ssh_tv() { ssh -o ConnectTimeout=10 "${SSH_BASE[@]}" "$TARGET" "$@"; }
 ssh_tty() { ssh -tt -o ConnectTimeout=15 "${SSH_BASE[@]}" "$TARGET" "$@"; }
-scp_tv() { scp -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=no -o LogLevel=ERROR -P "$DEV_PORT" -i "$SSH_KEY_PATH" "$@"; }
+scp_tv() { scp -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -o LogLevel=ERROR -P "$DEV_PORT" -i "$SSH_KEY_PATH" "$@"; }
 
 wait_for_ssh() {
 	local i
@@ -87,7 +92,7 @@ wait_for_ssh || die "SSH to $TARGET failed."
 close_payload="$(printf '{"id":"%s"}' "$APP_ID")"
 ssh_tv "if [ -x /usr/bin/luna-send ]; then luna-send -n 1 -w 8000 -f luna://com.webos.applicationManager/closeByAppId '$close_payload'; else /usr/bin/luna-send-pub -n 1 -w 8000 luna://com.webos.applicationManager/closeByAppId '$close_payload'; fi" >/dev/null 2>&1 || true
 
-ssh_tv "rm -rf '$REMOTE_TMP' && mkdir -p '$REMOTE_TMP' && chmod 777 '$REMOTE_TMP'"
+ssh_tv "rm -rf '$REMOTE_TMP' && mkdir -p '$REMOTE_TMP' && chmod 700 '$REMOTE_TMP'"
 printf "  Uploading %s…\n" "$(basename "$IPK")"
 scp_tv "$IPK" "$TARGET:$REMOTE_IPK" >/dev/null
 
@@ -144,8 +149,9 @@ ssh_tv "rm -f '${REMOTE_IPK}' /tmp/launch-home-install.log; /usr/sbin/ls-control
 # ── Launch ───────────────────────────────────────────────────────────────────
 if [[ "$LAUNCH" == "1" ]]; then
 	section "Launching app"
-	out="$(ssh_tty "luna-send -n 1 -w 15000 -f 'luna://com.webos.applicationManager/launch' '{\"id\":\"${APP_ID}\"}'" 2>/dev/null || true)"
-	printf '%s\n' "$out" | grep -q '"returnValue": true' \
+	# This TV generation's luna-send prints nothing without -i and with stdin open.
+	out="$(ssh_tty "luna-send -i -n 1 -w 4000 -f 'luna://com.webos.applicationManager/launch' '{\"id\":\"${APP_ID}\"}' </dev/null" 2>/dev/null || true)"
+	printf '%s\n' "$out" | grep -qE '"returnValue": ?true' \
 		|| die "Launch failed for ${APP_ID}."
 	printf "  %s\n" "$(c_grn "Launched ${APP_ID}")"
 fi

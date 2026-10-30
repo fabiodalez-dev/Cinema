@@ -2,7 +2,7 @@ import {createCinematic} from './cinematic.js';
 import {setClockTime} from './clock-format.js';
 import {createAllApps} from './all-apps.js';
 import './compat.js';
-import {loadConfig, saveConfig, applyUsbConfig, readStoredConfigText} from './config.js';
+import {loadConfig, saveConfig, applyUsbConfig, readStoredConfigText, configWasCorrupt} from './config.js';
 import {applyActiveProfile} from './profiles.js';
 import {resolveLoungePaths} from './usb.js';
 import {createBackgroundController} from './background.js';
@@ -17,6 +17,7 @@ import {
   getForegroundApp,
   launchApp,
   launchAppViaRoot,
+  liveProgrammeInfo,
   listApps,
   closeApp,
   enableHomeWatcher,
@@ -28,7 +29,6 @@ import {
   setSystemVolume,
   setScreensaverTimeout,
   execRoot,
-  lunaRequest,
   tvToolsStatus,
   tvToolsApply,
   tvToolsRefresh,
@@ -202,15 +202,15 @@ function syncHomeWatcher(config, opts) {
     (config.launcher.launchOnHome || config.launcher.returnOnAppExit));
   const apply = on ? enableHomeWatcher : disableHomeWatcher;
   return apply().then(function () {
-    if (on && !quiet) showToast('Home button → Cinema is active');
+    if (on && !quiet) showToast('Tasto Home → Cinema attivo');
   }).catch(function (err) {
     console.error(err);
     if (on) {
       const detail = err && err.message ? String(err.message) : '';
       const short = detail.replace(/\s+/g, ' ').slice(0, 90);
       showToast(short
-        ? 'Home watcher failed: ' + short
-        : 'Home watcher failed — check root / Homebrew Channel');
+        ? 'Controllo del tasto Home non riuscito: ' + short
+        : 'Controllo del tasto Home non riuscito: verifica root e Homebrew Channel');
     }
   });
 }
@@ -220,15 +220,15 @@ function syncBootLaunch(config, opts) {
   const on = !!(config && config.launcher && config.launcher.bootOnStart);
   const apply = on ? enableBootLaunch : disableBootLaunch;
   return apply().then(function () {
-    if (on && !quiet) showToast('Boot on TV start is active');
+    if (on && !quiet) showToast('Avvio con la TV attivo');
   }).catch(function (err) {
     console.error(err);
     if (on) {
       const detail = err && err.message ? String(err.message) : '';
       const short = detail.replace(/\s+/g, ' ').slice(0, 90);
       showToast(short
-        ? 'Boot on start failed: ' + short
-        : 'Boot on start failed — check root / Homebrew Channel');
+        ? 'Avvio con la TV non riuscito: ' + short
+        : 'Avvio con la TV non riuscito: verifica root e Homebrew Channel');
     }
   });
 }
@@ -236,14 +236,24 @@ function syncBootLaunch(config, opts) {
 // Voice assistant (Settings -> AI Voice). Re-running the enable at start is
 // cheap when all is current, and restarts the daemon on the code this Launch
 // Home version ships after an update.
+// A TV without a usable Python (this one has 2.7 only) is remembered, so the
+// 150 s enable script is not run, and the owner not told, at every start. The
+// note goes when Settings are saved, which is where voice is switched on.
+const VOICE_UNSUPPORTED_KEY = 'cinema.voiceUnsupported.v1';
 function syncVoice(config) {
   if (!(config && config.launcher && config.launcher.voiceEnabled)) {
     return Promise.resolve();
   }
+  try {
+    if (localStorage.getItem(VOICE_UNSUPPORTED_KEY) === APP_VERSION) return Promise.resolve();
+  } catch (err) { /* no storage */ }
   return enableVoice().catch(function (err) {
     console.error(err);
     const detail = err && err.message ? String(err.message) : '';
-    showToast('Voice assistant failed to start' +
+    if (/Python/.test(detail)) {
+      try { localStorage.setItem(VOICE_UNSUPPORTED_KEY, APP_VERSION); } catch (e) { /* ignore */ }
+    }
+    showToast('Assistente vocale non avviato' +
       (detail ? ': ' + detail.replace(/\s+/g, ' ').slice(0, 80) : ''));
   });
 }
@@ -274,7 +284,15 @@ const settings = createSettingsPanel(elements.settingsPanel, getBaseConfig, {
   onCustomSave: function(config){
     if(cinematic)cinematic.applySettings(elements.settingsPanel,config);
     // Settings -> TV is applied as root; a failure is shown in its own pane.
-    if(elements.settingsPanel.__tvToolsSave)elements.settingsPanel.__tvToolsSave().catch(function(){});
+    if(elements.settingsPanel.__tvToolsSave){
+      elements.settingsPanel.__tvToolsSave().then(function(applied){
+        if(applied!==undefined&&applied!==null)showToast('Strumenti TV applicati');
+      }).catch(function(err){
+        const detail=err&&err.message?String(err.message).replace(/\s+/g,' ').slice(0,90):'';
+        showToast('Strumenti TV non applicati'+(detail?': '+detail:''));
+      });
+    }
+    try{localStorage.removeItem(VOICE_UNSUPPORTED_KEY);}catch(err){/* ignore */}
   },
   onSave: function (savedConfig) {
     setConfig(savedConfig);
@@ -550,7 +568,7 @@ function launchSystemApp(id) {
       failures += 1;
       if (!settled && failures >= 2) {
         settled = true;
-        reject(new Error('Could not launch ' + id));
+        reject(new Error('Impossibile aprire ' + id));
       }
     }
     function startRoot() {
@@ -586,7 +604,7 @@ async function openTvSettings() {
       // Try the next candidate id.
     }
   }
-  showToast('Could not open TV Settings');
+  showToast('Impossibile aprire le Impostazioni della TV');
 }
 
 if (elements.appSettingsBtn) {
@@ -610,15 +628,19 @@ function formatClockDate(date, timezone) {
   if (timezone) {
     options.timeZone = timezone;
   }
+  let text;
   try {
-    return new Intl.DateTimeFormat('it-IT', options).format(date);
+    text = new Intl.DateTimeFormat('it-IT', options).format(date);
   } catch (err) {
     // Invalid timezone — fall back to local date.
     delete options.timeZone;
-    return new Intl.DateTimeFormat('it-IT', options).format(date);
+    text = new Intl.DateTimeFormat('it-IT', options).format(date);
   }
+  // Italian capitalises the first word only, never the month.
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+let appliedClockStyle = '';
 function applyClockStyle() {
   const launcher = (getConfig().launcher) || {};
   const rawAlign = launcher.clockAlign || 'center';
@@ -637,6 +659,10 @@ function applyClockStyle() {
     'xx-large': 1
   };
   const size = sizeAllowed[launcher.clockSize] ? launcher.clockSize : 'large';
+  // Nine class writes on <body> every tick restyled the whole tree (and woke
+  // three MutationObservers) for nothing; only a changed setting writes.
+  if (appliedClockStyle === align + '/' + size) return;
+  appliedClockStyle = align + '/' + size;
 
   document.body.classList.remove(
     'clock-left',
@@ -778,8 +804,11 @@ function updateMusicBarClearance() {
   document.body.classList.toggle('music-bar-clear', overlaps);
 }
 
-function updateAppScrollHints() {
-  updateMusicBarClearance();
+function updateAppScrollHints(withClearance) {
+  // The music-bar clearance never changes while the row scrolls (see
+  // updateMusicBarClearance); measuring every tile on each scroll event,
+  // with a class write in between, forced layout twice per event.
+  if (withClearance !== false) updateMusicBarClearance();
   const grid = elements.appGrid;
   const shell = elements.appGridShell;
   const launcher = elements.launcher;
@@ -823,8 +852,13 @@ function bindAppScrollHints() {
   if (!grid || grid.dataset.scrollHintsBound === '1') return;
   grid.dataset.scrollHintsBound = '1';
 
+  let scrollFrame = 0;
   grid.addEventListener('scroll', function () {
-    updateAppScrollHints();
+    if (scrollFrame) return;
+    scrollFrame = requestAnimationFrame(function () {
+      scrollFrame = 0;
+      updateAppScrollHints(false);
+    });
   }, {passive: true});
 
   window.addEventListener('resize', function () {
@@ -890,14 +924,19 @@ async function refreshAll(opts) {
   weather.refresh();
   // Returning from an app: the wallpaper and playlist stay as they are when
   // their settings haven't changed (see background.refresh, music.loadTracks).
-  await background.refresh({reuse: resume});
-  await inputs.refresh();
-  if(cinematic)cinematic.refreshInputs();
   // Whether the TV has channels decides if the Channels chip shows.
   channelStrip.refresh().catch(function () { /* no channels chip */ });
   const launcherConfig = getConfig().launcher || {};
   setPreferBundledIcons(launcherConfig.bundledIcons !== false);
-  await apps.refresh({reuse: resume});
+  // Side by side: one after the other, a wallpaper that took its 8 s to
+  // load held the dock and the inputs back for all of it. Each one failing
+  // leaves the others alone.
+  await Promise.all([
+    background.refresh({reuse: resume}).catch(function (err) { console.error(err); }),
+    inputs.refresh().then(function () { if (cinematic) cinematic.refreshInputs(); })
+      .catch(function (err) { console.error(err); }),
+    apps.refresh({reuse: resume}).catch(function (err) { console.error(err); })
+  ]);
   applyIconLayout();
   scheduleAppScrollHints();
   await music.loadTracks({reuse: resume});
@@ -981,6 +1020,9 @@ function handleResume() {
   clearTimeout(resumeTimer);
   resumeTimer = setTimeout(async function () {
     const config = getConfig();
+    // The remote first: awaiting the volume call here (up to 1.5 s) left the
+    // keys dead on every return, the opposite of what the comment below says.
+    reclaimInput();
     await settleHomeVolume();
     if (config.music && config.music.resumeOnReturn) {
       music.fadeInAndResume();
@@ -993,10 +1035,8 @@ function handleResume() {
     } else if (customScreensaver && typeof customScreensaver.resetIdle === 'function') {
       customScreensaver.resetIdle();
     }
-    // Give the remote back at once, on the control it was on; the refresh
-    // runs behind it. Waiting for the refresh first (Luna and root calls one
-    // after another) left the remote dead for seconds on slow TVs.
-    reclaimInput();
+    // The refresh runs behind the remote. Waiting for it first (Luna and root
+    // calls one after another) left the remote dead for seconds on slow TVs.
     refreshAll({resume: true}).then(function () {
       scheduleReclaimBursts();
     }, function (err) {
@@ -1019,6 +1059,10 @@ function handleVisibilityChange() {
       customScreensaver.hide();
     }
     channelStrip.close();
+    // Left by the Home key or a voice launch: nothing else pauses the music
+    // until the next foreground poll, which played on under the other app.
+    const config = getConfig();
+    if (config.music && config.music.pauseOnLaunch) music.fadeOutAndPause();
     return;
   }
   handleResume();
@@ -1075,12 +1119,16 @@ async function maybeReturnToLounge(appId) {
 // launch is being watched (ghost-focus recovery below); otherwise slowly. The
 // root home-watcher reacts to the Home button itself; this is its backup.
 const FOREGROUND_POLL_FAST_MS = 800;
-const FOREGROUND_POLL_IDLE_MS = 3000;
+// Visible and idle, 15 s is enough for the Home backup; behind another app
+// (only while Home interception is on) 5 s. Each poll is a root process.
+const FOREGROUND_POLL_IDLE_MS = 15000;
+const FOREGROUND_POLL_HIDDEN_MS = 5000;
 let foregroundWatcherOn = false;
 let foregroundPollBusy = false;
 
 function nextForegroundPollDelay() {
-  return launchPending ? FOREGROUND_POLL_FAST_MS : FOREGROUND_POLL_IDLE_MS;
+  if (launchPending) return FOREGROUND_POLL_FAST_MS;
+  return visible ? FOREGROUND_POLL_IDLE_MS : FOREGROUND_POLL_HIDDEN_MS;
 }
 
 function scheduleForegroundPoll(delay) {
@@ -1235,13 +1283,16 @@ async function autoEnableTerminal() {
   });
 
   const pinned = (baseConfig.launcher.pinnedApps || []);
+  let changed = false;
   if (terminal && pinned.indexOf(terminal.id) < 0) {
     pinned.push(terminal.id);
     baseConfig.launcher.pinnedApps = pinned;
+    changed = true;
   }
 
   baseConfig.launcher.terminalChecked = true;
   saveConfig(baseConfig);
+  return changed;
 }
 
 // Settings -> Backup & restore: the first start after an update keeps the
@@ -1255,15 +1306,18 @@ function keepSettingsFromBeforeUpdate() {
   try {
     last = localStorage.getItem(LAST_RUN_VERSION_KEY);
     if (last === APP_VERSION) return;
-    localStorage.setItem(LAST_RUN_VERSION_KEY, APP_VERSION);
   } catch (err) {
     return;
   }
-  if (!storedSettingsAtStart) return;  // first install: nothing to keep
+  function noteVersion() {
+    try { localStorage.setItem(LAST_RUN_VERSION_KEY, APP_VERSION); } catch (err) { /* ignore */ }
+  }
+  if (!storedSettingsAtStart) { noteVersion(); return; }  // first install: nothing to keep
   let stored = null;
   try {
     stored = JSON.parse(storedSettingsAtStart);
   } catch (err) {
+    noteVersion();
     return;
   }
   const text = settingsBackupText(stored, {
@@ -1271,8 +1325,10 @@ function keepSettingsFromBeforeUpdate() {
     appVersion: last || '',
     updatedTo: APP_VERSION
   });
-  writeAutoBackup('before-update-to-' + APP_VERSION + '.json', text).catch(function () {
-    /* optional */
+  // Noted only once the copy is written: a root queue busy at start-up
+  // used to lose it for good, the version already marked as done.
+  writeAutoBackup('before-update-to-' + APP_VERSION + '.json', text).then(noteVersion, function () {
+    /* no root: tried again next start */
   });
 }
 
@@ -1299,19 +1355,38 @@ function paintCachedDock() {
   } catch (err) { /* refreshAll builds it */ }
 }
 
+// The clock ticks on the minute: a fixed 30 s interval showed the new minute
+// up to 30 s late.
+function startClock() {
+  updateClock();
+  const now = new Date();
+  setTimeout(function () {
+    updateClock();
+    setInterval(updateClock, 60000);
+  }, 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 20);
+}
+
 async function init() {
   keepSettingsFromBeforeUpdate();
   paintCachedDock();
-  await applyUsbOverrides();
-  await autoEnableTerminal();
-  updateClock();
-  setInterval(updateClock, 30000);
+  if (configWasCorrupt()) {
+    showToast('Le impostazioni salvate erano illeggibili: ripartite dai valori predefiniti. Il testo originale è conservato nella TV.');
+  }
+  // The remote works on the cached dock at once; everything below used to
+  // run first (USB, app list, volume, wallpaper: up to ten seconds in a row)
+  // with a dock on screen that answered no key.
+  if (!settings.isVisible()) focus.focusHomeDock();
+  startClock();
   bindAppScrollHints();
-
   applyScreensaverSetting();
-  await settleHomeVolume();
+  settleHomeVolume();
   await refreshAll();
   weather.start();
+  // USB overrides and the terminal tile after the first paint; a change
+  // repaints the dock.
+  applyUsbOverrides().then(autoEnableTerminal).then(function (changed) {
+    if (changed) return apps.refresh();
+  }).catch(function (err) { console.error(err); });
 
   // In-app photo/clock screensaver after idle.
   if (customScreensaver && typeof customScreensaver.start === 'function') {
@@ -1523,13 +1598,11 @@ try {
     tuneChannel: tuneTvChannel,
     getProgramme: getTvProgramme,
     openApp: function (id, params) {
-      if (!params || !Object.keys(params).length) {
-        return launchApp(id).catch(function () { return launchAppViaRoot(id); });
-      }
-      return lunaRequest('luna://com.webos.applicationManager', {
-        method: 'launch', parameters: {id: id, params: params}
-      });
-    }
+      // A deep link (Litefin item) used a bare request: unanswered, it left
+      // Live suspended and the title button apparently dead.
+      return launchApp(id, params).catch(function () { return launchAppViaRoot(id, params); });
+    },
+    getProgrammeInfo: liveProgrammeInfo
   });
 } catch (err) {
   document.body.classList.remove('cinematic');
@@ -1537,6 +1610,6 @@ try {
 }
 
 init().catch(function (err) {
-  showToast('Startup error — check USB paths');
+  showToast('Errore all’avvio: controlla i percorsi USB');
   console.error(err);
 });

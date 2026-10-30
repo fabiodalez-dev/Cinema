@@ -62,20 +62,22 @@ export function conditionOf(code) {
   }
 }
 
+// Italian labels per condition: [day, night].
+const CONDITION_LABELS = {
+  'clear': ['Sereno', 'Notte serena'],
+  'mainly-clear': ['Poco nuvoloso', 'Notte poco nuvolosa'],
+  'partly-cloudy': ['Parzialmente nuvoloso', 'Parzialmente nuvoloso'],
+  'overcast': ['Coperto', 'Coperto'],
+  'fog': ['Nebbia', 'Nebbia'],
+  'drizzle': ['Pioggerella', 'Pioggerella'],
+  'rain': ['Pioggia', 'Pioggia'],
+  'snow': ['Neve', 'Neve'],
+  'thunder': ['Temporale', 'Temporale']
+};
+
 export function conditionLabel(code, isDay) {
-  const day = isDay !== false;
-  switch (conditionOf(code)) {
-    case 'clear': return day ? 'Clear' : 'Clear night';
-    case 'mainly-clear': return day ? 'Mostly clear' : 'Mostly clear night';
-    case 'partly-cloudy': return 'Partly cloudy';
-    case 'overcast': return 'Overcast';
-    case 'fog': return 'Fog';
-    case 'drizzle': return 'Drizzle';
-    case 'rain': return 'Rain';
-    case 'snow': return 'Snow';
-    case 'thunder': return 'Thunderstorm';
-    default: return 'Partly cloudy';
-  }
+  const labels = CONDITION_LABELS[conditionOf(code)] || CONDITION_LABELS['partly-cloudy'];
+  return labels[isDay !== false ? 0 : 1];
 }
 
 // ── Glyphs (WeatherGlyph.kt as SVG on a 100×100 canvas) ───────────────────
@@ -350,10 +352,19 @@ function locationToday(data) {
   return new Date(Date.now() + offset * 1000).toISOString().slice(0, 10);
 }
 
+/** "Lun", "Mar"… (Intl, it-IT); the fixed list covers a TV without that locale. */
 function weekdayShort(isoDate) {
   const parts = String(isoDate).split('-');
   const d = new Date(Date.UTC(+parts[0], +parts[1] - 1, +parts[2]));
-  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getUTCDay()];
+  let label = '';
+  try {
+    label = new Intl.DateTimeFormat('it-IT', {weekday: 'short', timeZone: 'UTC'}).format(d);
+  } catch (err) {
+    label = '';
+  }
+  if (!label) label = ['dom', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab'][d.getUTCDay()];
+  label = label.replace(/\.$/, '');
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 /** Town and country only: "Manchester, England, United Kingdom" → "Manchester, United Kingdom". */
@@ -407,7 +418,7 @@ function renderPanel(el, data, cfg) {
     '<div class="weather-row">' +
     '<div class="weather-today">' +
     '<div class="weather-today-head">' +
-      '<span class="weather-day-label">' + (built.isToday ? 'Today' : weekdayShort(today.date)) + '</span>' +
+      '<span class="weather-day-label">' + (built.isToday ? 'Oggi' : weekdayShort(today.date)) + '</span>' +
     '</div>' +
     '<div class="weather-today-main">' +
       weatherGlyphSvg(nowCode, nowIsDay) +
@@ -415,8 +426,8 @@ function renderPanel(el, data, cfg) {
     '</div>' +
     '<div class="weather-today-detail">' +
       '<span class="weather-condition">' + escapeHtml(conditionLabel(nowCode, nowIsDay)) + '</span>' +
-      '<span class="weather-hilo">H ' + formatTemp(today.high, units) +
-        ' <span class="weather-low">L ' + formatTemp(today.low, units) + '</span>' +
+      '<span class="weather-hilo">Max ' + formatTemp(today.high, units) +
+        ' <span class="weather-low">Min ' + formatTemp(today.low, units) + '</span>' +
         rainChance(today.rain) + '</span>' +
     '</div>' +
   '</div>';
@@ -424,7 +435,7 @@ function renderPanel(el, data, cfg) {
   for (let i = 1; i < days.length; i += 1) {
     const d = days[i];
     html += '<div class="weather-day" aria-label="' + escapeHtml(weekdayShort(d.date) + ', ' +
-      conditionLabel(d.code, true) + ', high ' + formatTemp(d.high, units) + ', low ' +
+      conditionLabel(d.code, true) + ', massima ' + formatTemp(d.high, units) + ', minima ' +
       formatTemp(d.low, units)) + '">' +
       '<span class="weather-day-label">' + weekdayShort(d.date) + '</span>' +
       weatherGlyphSvg(d.code, true) +

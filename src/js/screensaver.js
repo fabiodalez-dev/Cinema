@@ -21,15 +21,18 @@ const PRESETS = {
   'ember': 'radial-gradient(ellipse at 30% 20%, #4a1942 0%, #1a0a14 50%, #080408 100%)'
 };
 
+/** "Giovedì 30 ottobre" (it-IT writes weekdays in lower case; the first letter is raised here). */
 function formatDate(date, timezone) {
   const options = {weekday: 'long', day: 'numeric', month: 'long'};
   if (timezone) options.timeZone = timezone;
+  let text;
   try {
-    return new Intl.DateTimeFormat('en-GB', options).format(date);
+    text = new Intl.DateTimeFormat('it-IT', options).format(date);
   } catch (err) {
     delete options.timeZone;
-    return new Intl.DateTimeFormat('en-GB', options).format(date);
+    text = new Intl.DateTimeFormat('it-IT', options).format(date);
   }
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /** Fisher–Yates copy (aerial Slideshow order, like the home wallpaper). */
@@ -140,9 +143,22 @@ export function createCustomScreensaver(options) {
 
   function clearClockTimer() {
     if (clockTimer) {
+      // A timeout (to the next :00) or the minute interval that follows it.
+      clearTimeout(clockTimer);
       clearInterval(clockTimer);
       clockTimer = null;
     }
+  }
+
+  // The clock shows minutes: repaint on the minute (a timeout to the next
+  // :00, then every 60 s) instead of polling every 15 s.
+  function scheduleClockTick() {
+    clearClockTimer();
+    const untilMinute = 60000 - (Date.now() % 60000) + 20;
+    clockTimer = setTimeout(function () {
+      paintClock();
+      clockTimer = setInterval(paintClock, 60000);
+    }, untilMinute);
   }
 
   function paintClock() {
@@ -561,8 +577,7 @@ export function createCustomScreensaver(options) {
     document.body.classList.add('custom-screensaver-active');
 
     paintClock();
-    clearClockTimer();
-    clockTimer = setInterval(paintClock, 15000);
+    scheduleClockTick();
 
     beginContent();
 

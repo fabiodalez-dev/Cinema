@@ -41,11 +41,32 @@ loop_pid() {
   fi
 }
 
+# Some busybox builds only sleep whole seconds.
+sleep 0.1 2>/dev/null || SLEEP_INT=1
+
 # Wait in the background so a TERM from stop is handled at once, not after
 # the sleep ends.
 nap() {
-  sleep "$1" &
+  d=$1
+  case "$d" in *.*) [ -n "$SLEEP_INT" ] && d=1 ;; esac
+  sleep "$d" &
   wait $!
+}
+
+# python3 of a version the daemon runs on (3.7 up to 3.12): prints its path,
+# or "python: unsupported X.Y, need 3.7-3.12" and fails. No python at all
+# fails silently (enable-voice.sh reports missing_python).
+voice_python() {
+  py=$(command -v python3 || command -v python || true)
+  [ -n "$py" ] || return 1
+  ver=$("$py" -c 'import sys; sys.stdout.write("%d.%d" % sys.version_info[:2])' 2>/dev/null)
+  maj=${ver%%.*}
+  min=${ver#*.}
+  case "$maj.$min" in
+    3.7|3.8|3.9|3.10|3.11|3.12) echo "$py"; return 0 ;;
+  esac
+  echo "python: unsupported ${ver:-?}, need 3.7-3.12"
+  return 1
 }
 
 stop_all() {
@@ -62,20 +83,20 @@ stop_all() {
   # never match this script (`sh .../voice-run.sh stop`) or VoxRelay.
   pkill -TERM -f "^sh $RUN\$" 2>/dev/null
   pkill -TERM -f "^/bin/sh $RUN\$" 2>/dev/null
-  pkill -TERM -f "^python3 $DAEMON" 2>/dev/null
+  pkill -TERM -f "^[^ ]*python[0-9.]* $DAEMON" 2>/dev/null
   i=0
   while [ "$i" -lt 20 ]; do
     if ! pid_alive "$runpid" && ! pid_alive "$pid" &&
-       ! pgrep -f "^python3 $DAEMON" >/dev/null 2>&1; then
+       ! pgrep -f "^[^ ]*python[0-9.]* $DAEMON" >/dev/null 2>&1; then
       break
     fi
-    sleep 0.25
+    nap 0.25
     i=$((i + 1))
   done
   if [ -n "$pid" ]; then
     kill -KILL -"$pid" 2>/dev/null
   fi
-  pkill -KILL -f "^python3 $DAEMON" 2>/dev/null
+  pkill -KILL -f "^[^ ]*python[0-9.]* $DAEMON" 2>/dev/null
   if [ -n "$runpid" ]; then
     kill -KILL "$runpid" 2>/dev/null
   fi
@@ -105,7 +126,7 @@ start_loop() {
       echo "started pid=$p"
       return 0
     fi
-    sleep 0.25
+    nap 0.25
     i=$((i + 1))
   done
   echo start_failed
@@ -114,6 +135,12 @@ start_loop() {
 
 case "$1" in
   start)
+    # A TV whose Python cannot run the daemon: say so (exit 0, parsable) and
+    # start nothing, so nothing retries at every start.
+    if ! PY=$(voice_python); then
+      [ -n "$PY" ] && echo "$PY"
+      exit 0
+    fi
     start_loop
     exit $?
     ;;
@@ -159,8 +186,8 @@ on_term() {
 }
 trap on_term TERM INT
 
-if ! command -v python3 >/dev/null 2>&1; then
-  log "python3 not found; voice assistant cannot run on this TV"
+if ! PY=$(voice_python); then
+  log "${PY:-python3 not found}; voice assistant cannot run on this TV"
   rm -f "$RUNPID"
   exit 1
 fi
@@ -182,7 +209,7 @@ while [ ! -f "$STOP" ] && [ -f "$DAEMON" ]; do
   # The daemon makes itself a process-group leader (os.setsid), so its
   # helpers stop with it. Bytecode goes to /tmp, not into the app folder.
   PYTHONUNBUFFERED=1 PYTHONPYCACHEPREFIX=/tmp/launch-home-voice-pycache \
-    python3 "$DAEMON" </dev/null >/dev/null 2>&1 &
+    "$PY" "$DAEMON" </dev/null >/dev/null 2>&1 &
   child=$!
   echo "$child" >"$PIDF"
   wait "$child"

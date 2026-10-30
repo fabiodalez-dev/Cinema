@@ -16,9 +16,21 @@ APP_ID="org.webosbrew.lounge.launcher"
 PIDFILE="/tmp/launch-home-watcher.pid"
 LOG="/tmp/launch-home-watcher.log"
 COOLDOWN_SEC=1
+# At most this many activations a minute: a Home that keeps coming back
+# (a dialog LG reopens, a stuck launch) must not turn into a launch storm.
+MAX_PER_MIN=6
 
 log() {
   echo "$(date '+%H:%M:%S' 2>/dev/null) $*" >>"$LOG" 2>/dev/null || true
+}
+
+# Some busybox builds only sleep whole seconds.
+sleep 0.1 2>/dev/null || SLEEP_INT=1
+nap() {
+  case "$1" in
+    *.*) if [ -n "$SLEEP_INT" ]; then sleep 1; else sleep "$1"; fi ;;
+    *) sleep "$1" ;;
+  esac
 }
 
 if [ -f "$PIDFILE" ]; then
@@ -47,15 +59,16 @@ is_home() {
 }
 
 extract_app_id() {
-  # Prefer top-level "appId"; fall back to foregroundAppInfo[0].appId (some
-  # older webOS builds only fill the array form).
+  # Prefer foregroundAppInfo[0].appId, the app that owns the screen (the
+  # top-level "appId" can name an overlay); fall back to the first "appId"
+  # (older builds only give that).
   raw=$(printf '%s' "$1" | tr '\n' ' ')
-  id=$(printf '%s' "$raw" | sed -n 's/.*"appId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+  id=$(printf '%s' "$raw" | sed -n 's/.*"foregroundAppInfo"[^[]*\[[^]{]*{[^}]*"appId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
   if [ -n "$id" ]; then
     printf '%s' "$id"
     return 0
   fi
-  printf '%s' "$raw" | sed -n 's/.*"foregroundAppInfo"[^[]*\[[^]{]*{[^}]*"appId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+  printf '%s' "$raw" | sed -n 's/.*"appId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
 }
 
 # One-shot luna-send with webOS 4-compatible fallbacks (-w / -i may be missing).
@@ -108,9 +121,9 @@ close_home() {
 activate_app() {
   log "activate Launch Home"
   launch_app
-  sleep 0.25
+  nap 0.25
   close_home
-  sleep 0.15
+  nap 0.15
   launch_app
 }
 
@@ -121,6 +134,23 @@ now_sec() {
 last_app=""
 last_action=0
 primed=0
+minute_start=0
+minute_count=0
+
+# False (and logged once) past MAX_PER_MIN activations in the same minute.
+under_rate() {
+  now=$(now_sec)
+  if [ $((now - minute_start)) -ge 60 ]; then
+    minute_start=$now
+    minute_count=0
+  fi
+  minute_count=$((minute_count + 1))
+  if [ "$minute_count" -gt "$MAX_PER_MIN" ]; then
+    [ "$minute_count" -eq $((MAX_PER_MIN + 1)) ] && log "more than $MAX_PER_MIN activations in a minute: holding back"
+    return 1
+  fi
+  return 0
+}
 
 handle_fg() {
   appId=$1
@@ -147,6 +177,7 @@ handle_fg() {
     last_action=$now
     prev="$last_app"
     last_app="$appId"
+    under_rate || return 0
     log "home after $prev -> activate Launch Home"
     activate_app
     return 0
@@ -177,8 +208,10 @@ run_subscribe() {
 # Wait briefly for LS2 after cold boot (webOS 4 init.d can start us early).
 boot_wait=0
 while [ "$boot_wait" -lt 30 ]; do
+  # Only a reply with returnValue counts: luna-send can print nothing and
+  # still exit 0 while the service is not up yet.
   probe=$(luna_once 'luna://com.webos.applicationManager/getForegroundAppInfo' '{"subscribe":true}' 2>/dev/null)
-  if [ -n "$probe" ]; then
+  if printf '%s' "$probe" | grep -q returnValue; then
     log "ls2 ready after ${boot_wait}s"
     break
   fi
@@ -191,18 +224,21 @@ while true; do
   run_subscribe
   sub_lasted=$(( $(now_sec) - sub_start ))
   # Polling fallback while subscribe is down / between restarts. Every poll
-  # spawns luna-send plus sed, so poll once a second, and when the subscribe
-  # died at once (it isn't coming back soon) poll a minute before retrying it
-  # instead of hammering both.
-  polls=10
+  # spawns luna-send plus sed, so the pause between polls grows from 1 s to
+  # 10 s, and when the subscribe died at once (it isn't coming back soon) the
+  # polling goes on a minute before retrying it instead of hammering both.
+  poll_for=10
   if [ "$sub_lasted" -lt 5 ]; then
-    polls=60
+    poll_for=60
   fi
-  i=0
-  while [ "$i" -lt "$polls" ]; do
+  spent=0
+  interval=1
+  while [ "$spent" -lt "$poll_for" ]; do
     raw=$(luna_once 'luna://com.webos.applicationManager/getForegroundAppInfo' '{"subscribe":true}')
     handle_fg "$(extract_app_id "$raw")"
-    i=$((i + 1))
-    sleep 1
+    nap "$interval"
+    spent=$((spent + interval))
+    interval=$((interval * 2))
+    [ "$interval" -gt 10 ] && interval=10
   done
 done

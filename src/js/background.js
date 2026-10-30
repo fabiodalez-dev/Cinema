@@ -35,6 +35,8 @@ function shuffled(items) {
   return arr;
 }
 
+// Resolves true once the photo is downloaded and decoded (false on error or
+// after a timeout), so a wallpaper is never shown while it is still decoding.
 function preloadImage(url) {
   return new Promise(function (resolve) {
     if (!url) {
@@ -49,7 +51,11 @@ function preloadImage(url) {
       resolve(!!ok);
     }
     img.onload = function () {
-      done(true);
+      if (typeof img.decode === 'function') {
+        img.decode().then(function () { done(true); }, function () { done(true); });
+      } else {
+        done(true);
+      }
     };
     img.onerror = function () {
       done(false);
@@ -96,9 +102,41 @@ export function createBackgroundController(elements, getConfig) {
   let videoFellBack = false;
   // What the wallpaper on screen was made from (see refresh reuse).
   let appliedSignature = '';
+  // Photo crossfade (the screensaver's pattern): the incoming photo, already
+  // decoded, fades in on an overlay above the layer that still shows the old
+  // one; once faded the layer takes it over and the overlay clears. The layer
+  // stays the steady holder because ken-burns runs on it and Settings' glass
+  // preview reads its background-image. Perf mode / reduced motion zero the
+  // transition in CSS, so there the swap is instant, but still after decode.
+  const PHOTO_FADE_MS = 600;
+  let photoOverlay = layer.querySelector('.background-photo');
+  let photoGen = 0;
+  let photoSettle = null;
+
+  function ensurePhotoOverlay() {
+    if (photoOverlay) return photoOverlay;
+    const el = document.createElement('div');
+    el.className = 'background-photo';
+    el.setAttribute('aria-hidden', 'true');
+    layer.insertBefore(el, layer.firstChild);
+    photoOverlay = el;
+    return el;
+  }
+
+  // Drop the photo on screen (gradient or video is taking the layer).
+  function clearPhoto() {
+    photoGen += 1;
+    if (photoSettle) clearTimeout(photoSettle);
+    photoSettle = null;
+    if (!photoOverlay) return;
+    photoOverlay.classList.remove('is-front');
+    photoOverlay.classList.add('is-settled');
+    photoOverlay.style.backgroundImage = '';
+  }
 
   function applyPreset(name, animated) {
     const gradient = PRESETS[name] || PRESETS['warm-gradient'];
+    clearPhoto();
     layer.style.backgroundImage = gradient;
     layer.style.backgroundColor = '#0a0a0f';
     layer.style.backgroundSize = 'cover';
@@ -118,14 +156,30 @@ export function createBackgroundController(elements, getConfig) {
       layer.classList.contains('ken-burns') || layer.classList.contains('gradient-animated'));
   }
 
-  function applyImage(url) {
+  // Put a decoded photo on screen: fade it in on the overlay, then hand it to
+  // the layer (see PHOTO_FADE_MS).
+  function showPhoto(url, gen) {
     const config = getConfig();
     const bg = normalizeBackgroundConfig(config.background);
     // Quote-safe CSS url(); escape backslashes and quotes for file paths.
     const safe = String(url).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const css = 'url("' + safe + '")';
+    const overlay = ensurePhotoOverlay();
+
+    if (photoSettle) clearTimeout(photoSettle);
+    overlay.style.backgroundImage = css;
+    overlay.classList.remove('is-settled');
+    overlay.classList.add('is-front');
+    photoSettle = setTimeout(function () {
+      photoSettle = null;
+      if (gen !== photoGen) return;
+      layer.style.backgroundImage = css;
+      // Same picture underneath now: hide the overlay with no transition.
+      overlay.classList.add('is-settled');
+      overlay.classList.remove('is-front');
+    }, PHOTO_FADE_MS + 50);
 
     layer.style.backgroundColor = '#0a0a0f';
-    layer.style.backgroundImage = 'url("' + safe + '")';
     layer.style.backgroundSize = 'cover';
     layer.style.backgroundPosition = 'center center';
     layer.style.backgroundRepeat = 'no-repeat';
@@ -138,6 +192,17 @@ export function createBackgroundController(elements, getConfig) {
       layer.classList.remove('ken-burns');
     }
     syncMovingBackground();
+  }
+
+  // Decode the photo first, then crossfade to it. True when it went up; false
+  // when it didn't load or a newer wallpaper superseded it meanwhile.
+  function applyImage(url) {
+    const gen = ++photoGen;
+    return preloadImage(url).then(function (ok) {
+      if (!ok || gen !== photoGen) return false;
+      showPhoto(url, gen);
+      return true;
+    });
   }
 
   function applyScrim() {
@@ -342,6 +407,7 @@ export function createBackgroundController(elements, getConfig) {
     video.addEventListener('error', videoErrorListener);
 
     // Gradient poster behind the clip until its first frame paints.
+    clearPhoto();
     layer.style.backgroundImage = PRESETS[bg.preset] || PRESETS['warm-gradient'];
     layer.style.backgroundColor = '#0a0a0f';
     layer.classList.add('has-video');
@@ -459,30 +525,28 @@ export function createBackgroundController(elements, getConfig) {
   }
 
   // Not while another app or TV Settings (an overlay) is in front: the next
-  // 4K photo would be decoded and drawn underneath for nobody to see.
+  // photo would be decoded and drawn underneath for nobody to see.
   function slideshowTick() {
     if (!wallpaperShouldAnimate()) return;
     showSlideshowImage();
   }
 
-  function startSlideshow(media, intervalSec) {
+  // `first` is already on screen (pickLoadableMedia): carry on after it.
+  function startSlideshow(media, intervalSec, first) {
     slideshowMedia = media;
-    slideshowIndex = 0;
-    showSlideshowImage();
+    slideshowIndex = Math.max(0, media.indexOf(first)) + 1;
     slideshowTimer = setInterval(slideshowTick, intervalSec * 1000);
   }
 
   /**
-   * Try each candidate URL until one decodes. webOS 4 may reject one form of
-   * path but accept another (relative vs absolute file://).
+   * Try each candidate URL until one decodes, and show that one. webOS 4 may
+   * reject one form of path but accept another (relative vs absolute file://).
    */
   async function pickLoadableMedia(candidates) {
     for (let i = 0; i < candidates.length; i += 1) {
       const item = candidates[i];
       if (!item || !item.url) continue;
-      // Apply optimistically so the user sees something while we verify.
-      applyImage(item.url);
-      const ok = await preloadImage(item.url);
+      const ok = await applyImage(item.url);
       if (ok) return item;
     }
     return null;
@@ -577,16 +641,18 @@ export function createBackgroundController(elements, getConfig) {
       return false;
     }
 
+    const urls = media.map(function (item) { return item.url; });
+
     if (bg.mode === 'slideshow' && media.length > 1) {
       // Verify at least the first image loads; still run the full list.
       const first = await pickLoadableMedia(media);
       if (gen !== refreshGen) return false;
       if (!first) {
         applyPreset(bg.preset || 'warm-gradient', false);
-        reportOnlineFailure(bg, images);
+        reportOnlineFailure(bg, urls);
         return false;
       }
-      startSlideshow(media, bg.slideshowIntervalSec || 300);
+      startSlideshow(media, bg.slideshowIntervalSec || 300, first);
       return true;
     }
 
@@ -594,7 +660,7 @@ export function createBackgroundController(elements, getConfig) {
     if (gen !== refreshGen) return false;
     if (!loaded) {
       applyPreset(bg.preset || 'warm-gradient', false);
-      reportOnlineFailure(bg, images);
+      reportOnlineFailure(bg, urls);
       return false;
     }
     reportedFailure = '';
@@ -606,6 +672,7 @@ export function createBackgroundController(elements, getConfig) {
     stepAerial: stepAerial,
     destroy: function () {
       clearSlideshow();
+      clearPhoto();
       teardownVideo();
       document.removeEventListener('visibilitychange', syncVideoPlayback);
       window.removeEventListener('focus', syncVideoPlayback);

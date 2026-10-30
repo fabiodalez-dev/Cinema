@@ -48,3 +48,23 @@ export function setClockTime(el, date, timezone, hour12) {
     el.appendChild(ampm);
   }
 }
+
+/** "giovedì 30 ottobre" -> "Giovedì 30 ottobre": only the first letter, never CSS capitalize. */
+export function sentenceCase(text) {
+  const t = String(text || '');
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+}
+
+/** The date line in Italian, e.g. "Giovedì 30 ottobre"; `timezone` as for clockParts. */
+export function formatItalianDate(date, timezone) {
+  const options = {weekday: 'long', day: 'numeric', month: 'long'};
+  if (timezone) options.timeZone = timezone;
+  let text;
+  try {
+    text = new Intl.DateTimeFormat('it-IT', options).format(date);
+  } catch (err) {
+    delete options.timeZone;
+    text = new Intl.DateTimeFormat('it-IT', options).format(date);
+  }
+  return sentenceCase(text);
+}

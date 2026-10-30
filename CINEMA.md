@@ -10,7 +10,7 @@ The design follows a user-provided TV Home prototype, refined towards Google TV:
 
 Film, series, resume and music album lists are fetched asynchronously, using bounded thumbnails and a single hero backdrop. Search also includes music. Existing app/HDMI launching never waits for Jellyfin. Cached metadata and artwork provide a fallback; without any cache the Home presents local app shortcuts and a bundled static background.
 
-On a rooted TV provision `/var/lib/launch-home-cinema/jellyfin.json`, mode 0600, with `server`, `userId`, `token`, and optional `userName`. The Homebrew Channel service must already run elevated. Credentials are device-local; they are never included in this repository or the IPK and never added to artwork URLs. Jellyfin requests use the Authorization header supported by current Jellyfin.
+Settings → Cinema links the account with Jellyfin Quick Connect (server address, then the code approved from another device) and writes the file below as root. It can also be provisioned by hand: `/var/lib/launch-home-cinema/jellyfin.json`, mode 0600, with `server`, `userId`, `token`, and optional `userName`. The Homebrew Channel service must already run elevated. Credentials are device-local; they are never included in this repository or the IPK and never added to artwork URLs. Jellyfin requests use the Authorization header supported by current Jellyfin.
 
 Settings → Tools can disable Jellyfin or its backdrop without changing the original background settings. Original music/weather remain available, but new installs start them disabled rather than fetching a forecast for a default city or auto-playing ambient music.
 

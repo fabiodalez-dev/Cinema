@@ -16,7 +16,9 @@ chmod 755 "$LAUNCH"
 mkdir -p /var/lib/webosbrew/init.d
 rm -f "$OLD_INITD"
 
-cat >"$INITD" <<EOF
+# The hook is on flash and this runs at every start of Cinema: it is
+# rewritten only when its content changed.
+cat >"$INITD.part" <<EOF
 #!/bin/sh
 LOG="$LOG"
 LAUNCH="$LAUNCH"
@@ -29,7 +31,8 @@ else
 fi
 exit 0
 EOF
-chmod 755 "$INITD"
+chmod 755 "$INITD.part"
+if cmp -s "$INITD.part" "$INITD" 2>/dev/null; then rm -f "$INITD.part"; else mv -f "$INITD.part" "$INITD"; fi
 
 # Start the wake watcher now so Quick Start+ wakes are handled before the next
 # reboot. boot-launch.sh exits at once if an instance is already running.

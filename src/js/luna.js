@@ -22,11 +22,20 @@ function withTimeout(promise, ms) {
   });
 }
 
+/** Default limit for a one-shot Luna call; subscriptions never get one. */
+export const LUNA_REQUEST_TIMEOUT_MS = 8000;
+
+/**
+ * One Luna call. A call that never answers (eim, pdm, audio after a failed
+ * launch) used to hold up whatever awaited it, dock refresh included: unless
+ * `options.timeoutMs` is 0 or the call subscribes, it is rejected after
+ * `timeoutMs` (default LUNA_REQUEST_TIMEOUT_MS).
+ */
 export function lunaRequest(uri, options) {
   const method = options.method;
   const parameters = options.parameters || {};
-
-  return new Promise(function (resolve, reject) {
+  const limit = options.timeoutMs === undefined ? LUNA_REQUEST_TIMEOUT_MS : options.timeoutMs;
+  const request = new Promise(function (resolve, reject) {
     if (!hasWebOS()) {
       reject(new Error('webOS Luna bus unavailable'));
       return;
@@ -47,6 +56,8 @@ export function lunaRequest(uri, options) {
       }
     });
   });
+  if (!(limit > 0) || parameters.subscribe === true) return request;
+  return withTimeout(request, limit);
 }
 
 function tryLunaRequest(uri, options) {
@@ -99,10 +110,25 @@ function lunaSubscribeOnce(uri, options) {
   });
 }
 
-export function launchApp(id) {
+/** Live TV and the external inputs: apps the boot guard would otherwise cover. */
+const INPUT_APP_RE = /^com\.webos\.app\.(livetv|hdmi\d*|inputcommon|externalinput\.)/;
+const USER_INPUT_MARK = '/tmp/launch-home-user-input';
+
+/**
+ * Note that the owner chose Live TV or an input. scripts/boot-launch.sh puts
+ * Cinema back over an input that LG's last-input handler opens by itself after
+ * a boot or a wake; a mark younger than 90 s tells it this one was wanted.
+ */
+export function markUserInput() {
+  return execRoot('touch ' + USER_INPUT_MARK, 3000).catch(function () { /* not rooted */ });
+}
+
+export function launchApp(id, params) {
+  if (INPUT_APP_RE.test(id)) markUserInput();
   return withTimeout(lunaRequest('luna://com.webos.applicationManager', {
     method: 'launch',
-    parameters: {id: id, params: {}}
+    parameters: {id: id, params: params || {}},
+    timeoutMs: 0
   }), 5000);
 }
 
@@ -115,9 +141,38 @@ export function getAppInfo(id) {
 
 /** Longest a root command may run when the caller sets no limit of its own. */
 export const ROOT_EXEC_TIMEOUT_MS = 20000;
+/** The JS side gives the shell this much longer than its own limit to end the command. */
+export const ROOT_EXEC_GRACE_MS = 1500;
+/** Where execRootLong keeps a detached command's output (root only, tmpfs). */
+const ROOT_JOB_DIR = '/run/cinema-tvtools/jobs';
+const ROOT_JOB_POLL_MS = 2000;
 
-// Tail of the root command queue: every exec waits for the previous one.
-let rootQueue = Promise.resolve();
+// Root command queue, two lanes. 'interactive' (a channel change, a launch,
+// a file the home needs now) always goes before 'maintenance' (hooks, daemon
+// and update checks). One command runs at a time whichever the lane.
+const rootWaiting = {interactive: [], maintenance: []};
+let rootRunning = false;
+
+function pumpRootQueue() {
+  if (rootRunning) return;
+  const next = rootWaiting.interactive.shift() || rootWaiting.maintenance.shift();
+  if (!next) return;
+  rootRunning = true;
+  next();
+}
+
+/**
+ * `command` wrapped so the shell itself ends it after `seconds`. The JS
+ * timeout alone abandoned the promise while the process went on inside
+ * Homebrew Channel: the next command then ran beside it, the parallel
+ * execution the queue exists to avoid. The killer holds no stdout, or the
+ * exec would wait for its sleep to end.
+ */
+export function shellTimeoutCommand(command, seconds) {
+  const s = Math.max(1, Math.ceil(seconds));
+  return 'sh -c ' + shQuote(command) + ' & __p=$!; ( sleep ' + s + '; kill $__p 2>/dev/null ) >/dev/null 2>&1 & __k=$!; ' +
+    'wait $__p; __r=$?; kill $__k 2>/dev/null; exit $__r';
+}
 
 /**
  * Run a shell command through the Homebrew Channel root service. On a rooted TV
@@ -128,19 +183,84 @@ let rootQueue = Promise.resolve();
  * burst of parallel execs on a cold start once left a forked child deadlocked
  * before exec, hanging the service for every app. `timeoutMs` (default
  * ROOT_EXEC_TIMEOUT_MS) counts from the moment the command actually starts, so
- * time spent waiting in the queue never eats into it; a command that never
- * answers is abandoned after that limit and the next one starts.
+ * time spent waiting in the queue never eats into it. The shell ends the
+ * command at that limit; the promise is rejected ROOT_EXEC_GRACE_MS later if
+ * even that brought no answer, and the next command starts.
+ * `opts.lane` 'maintenance' queues behind every interactive command.
  */
-export function execRoot(command, timeoutMs) {
+export function execRoot(command, timeoutMs, opts) {
   const limit = timeoutMs > 0 ? timeoutMs : ROOT_EXEC_TIMEOUT_MS;
-  const run = rootQueue.then(function () {
-    return withTimeout(lunaRequest('luna://org.webosbrew.hbchannel.service', {
-      method: 'exec',
-      parameters: {command: command}
-    }), limit);
+  const lane = opts && opts.lane === 'maintenance' ? 'maintenance' : 'interactive';
+  const wrapped = shellTimeoutCommand(command, limit / 1000);
+  return new Promise(function (resolve, reject) {
+    rootWaiting[lane].push(function () {
+      function done(settle, value) {
+        rootRunning = false;
+        pumpRootQueue();
+        settle(value);
+      }
+      withTimeout(lunaRequest('luna://org.webosbrew.hbchannel.service', {
+        method: 'exec',
+        parameters: {command: wrapped},
+        timeoutMs: 0
+      }), limit + ROOT_EXEC_GRACE_MS).then(function (res) { done(resolve, res); }, function (err) { done(reject, err); });
+    });
+    pumpRootQueue();
   });
-  rootQueue = run.catch(function () { /* the caller sees the error */ });
-  return run;
+}
+
+/** execRoot in the maintenance lane: after anything the owner is waiting for. */
+export function execRootLater(command, timeoutMs) {
+  return execRoot(command, timeoutMs, {lane: 'maintenance'});
+}
+
+function sleep(ms) {
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
+}
+
+let rootJobSeq = 0;
+
+/**
+ * A long root command (a diagnostics run, the voice or TV tools scripts, an
+ * update check) run outside the queue: started detached with setsid, its
+ * output collected by short maintenance-lane reads every two seconds. A
+ * channel change or a launch never waits behind a 60-150 s script. Resolves
+ * and rejects like execRoot, so rootScriptOutput reads it the same way.
+ */
+export function execRootLong(command, timeoutMs) {
+  const limit = timeoutMs > 0 ? timeoutMs : ROOT_EXEC_TIMEOUT_MS;
+  rootJobSeq += 1;
+  const job = ROOT_JOB_DIR + '/' + Date.now().toString(36) + '-' + rootJobSeq;
+  const out = shQuote(job + '.out');
+  const rc = shQuote(job + '.rc');
+  const inner = 'sh -c ' + shQuote(shellTimeoutCommand(command, limit / 1000)) + ' >' + out + ' 2>&1; echo $? >' + rc;
+  const start = 'mkdir -p ' + shQuote(ROOT_JOB_DIR) + ' && chmod 700 ' + shQuote(ROOT_JOB_DIR) + ' && ' +
+    'setsid sh -c ' + shQuote(inner) + ' </dev/null >/dev/null 2>&1 & echo started';
+  const read = 'if [ -f ' + rc + ' ]; then cat ' + out + '; printf \'\\n__rc=%s\\n\' "$(cat ' + rc + ')"; rm -f ' + out + ' ' + rc +
+    '; else echo __running; fi';
+  const deadline = Date.now() + limit + ROOT_JOB_POLL_MS * 3;
+  return execRoot(start, 8000, {lane: 'maintenance'}).then(function (res) {
+    if (readExecStdout(res).indexOf('started') < 0) throw new Error('root command did not start');
+    function poll() {
+      return sleep(ROOT_JOB_POLL_MS).then(function () {
+        return execRoot(read, 8000, {lane: 'maintenance'});
+      }).then(function (res) {
+        const text = readExecStdout(res);
+        const m = /\n?__rc=(\d+)\s*$/.exec(text);
+        if (!m) {
+          if (Date.now() > deadline) throw new Error('Luna call timed out');
+          return poll();
+        }
+        const body = text.slice(0, m.index);
+        if (m[1] !== '0') {
+          // Shaped like Homebrew Channel's own failure, output included.
+          return Promise.reject({returnValue: false, errorText: 'command failed', stdoutString: body});
+        }
+        return {returnValue: true, stdoutString: body};
+      });
+    }
+    return poll();
+  });
 }
 
 /**
@@ -376,10 +496,13 @@ function getForegroundViaRoot() {
  * Launch an app via root luna-send. More reliable from backgrounded contexts
  * where the sandboxed applicationManager/launch call may be denied or ignored.
  */
-export function launchAppViaRoot(id) {
+export function launchAppViaRoot(id, params) {
+  if (INPUT_APP_RE.test(id)) markUserInput();
+  const payload = {id: id};
+  if (params && Object.keys(params).length) payload.params = params;
   const command = lunaSendRootCommand(
     'luna://com.webos.applicationManager/launch',
-    JSON.stringify({id: id}),
+    JSON.stringify(payload),
     4000
   );
   return execRoot(command, 5000).then(function (res) {
@@ -421,15 +544,15 @@ export function enableHomeWatcher() {
   const cmd =
     'chmod 755 "' + HOME_WATCHER_ENABLE + '" "' + HOME_WATCHER_APP_PATH +
     '" 2>/dev/null; sh "' + HOME_WATCHER_ENABLE + '"';
-  return rootScriptOutput(execRoot(cmd, 20000)).then(function (out) {
+  return rootScriptOutput(execRootLater(cmd, 20000)).then(function (out) {
     if (out.indexOf('missing_watcher') >= 0) {
-      throw new Error('home-watcher.sh not installed on TV');
+      throw new Error('home-watcher.sh non installato sulla TV');
     }
     if (out.indexOf('start_failed') >= 0) {
-      throw new Error('watcher did not start (see /tmp/launch-home-watcher.log)');
+      throw new Error('il watcher non è partito (vedi /tmp/launch-home-watcher.log)');
     }
     if (out.indexOf('enabled') < 0) {
-      throw new Error(out.split('\n')[0] || 'home watcher failed to start');
+      throw new Error(out.split('\n')[0] || 'avvio del watcher Home non riuscito');
     }
     return true;
   });
@@ -449,7 +572,7 @@ export function runTvCheck(appLine) {
     DIAGNOSTICS_SCRIPT + '" --open-settings --app \'' + app + '\'';
   // Usually 30-40 s; up to about two minutes when TV Settings is slow and
   // won't close by itself (the script then tries other ways).
-  return rootScriptOutput(execRoot(cmd, 150000));
+  return rootScriptOutput(execRootLong(cmd, 150000));
 }
 
 // Settings -> Backup & restore. The TV copy is outside the app folder, so it
@@ -486,10 +609,17 @@ export function rootWriteCommands(path, text) {
   return cmds;
 }
 
-async function writeFileAsRoot(path, text) {
+/**
+ * Write `text` to `path` as root; `mode` (e.g. '600') is applied once the
+ * file is in place, for credentials such as Cinema's Jellyfin connection.
+ */
+export async function writeFileAsRoot(path, text, mode) {
   for (const cmd of rootWriteCommands(path, text)) {
     const out = await rootScriptOutput(execRoot(cmd, 10000));
-    if (out.indexOf('written') < 0) throw new Error(out.split('\n')[0] || 'could not write');
+    if (out.indexOf('written') < 0) throw new Error(out.split('\n')[0] || 'scrittura non riuscita');
+  }
+  if (mode && /^[0-7]{3,4}$/.test(String(mode))) {
+    await rootScriptOutput(execRoot('chmod ' + mode + ' ' + shQuote(path) + ' && echo ok', 5000));
   }
 }
 
@@ -605,7 +735,7 @@ export function openTvChannel(channel) {
   const number = String((channel && channel.number) || '').replace(/[^0-9.-]/g, '');
   const cmd = 'sh "' + CHANNELS_SCRIPT + '" open "' + id + '" "' + number + '"';
   return rootScriptOutput(execRoot(cmd, 20000)).then(function (out) {
-    if (out.indexOf('opened') < 0) throw new Error('the TV didn\u2019t switch channel');
+    if (out.indexOf('opened') < 0) throw new Error('la TV non ha cambiato canale');
     return true;
   });
 }
@@ -623,10 +753,30 @@ export function getTvCurrentChannelId() {
  */
 export function tuneTvChannel(channel) {
   const id = String((channel && channel.id) || '').replace(/[^A-Za-z0-9_.-]/g, '');
-  if (!id) return Promise.reject(new Error('no channel'));
+  if (!id) return Promise.reject(new Error('nessun canale'));
   return rootScriptOutput(execRoot('sh "' + CHANNELS_SCRIPT + '" tune "' + id + '"', 8000)).then(function (out) {
-    if (out.indexOf('tuned') < 0) throw new Error('the TV didn’t switch channel');
+    if (out.indexOf('tuned') < 0) throw new Error('la TV non ha cambiato canale');
     return true;
+  });
+}
+
+/**
+ * The programme on `channel` ({id}) now with its times: {name, start, end,
+ * next} (seconds since the epoch, 0 when the guide has none). Falls back to
+ * the name alone with a channels.sh that lacks `programme-info`.
+ */
+export function liveProgrammeInfo(channel) {
+  const id = String((channel && channel.id) || '').replace(/[^A-Za-z0-9_.-]/g, '');
+  if (!id) return Promise.resolve({name: '', start: 0, end: 0, next: ''});
+  return execRoot('sh "' + CHANNELS_SCRIPT + '" programme-info "' + id + '"', 8000).then(function (res) {
+    const out = readExecStdout(res);
+    try {
+      const data = JSON.parse(out.slice(out.indexOf('{')));
+      return {name: String(data.name || ''), start: Number(data.start) || 0, end: Number(data.end) || 0,
+        next: String(data.next || '')};
+    } catch (err) {
+      return getTvProgramme(channel).then(function (name) { return {name: name, start: 0, end: 0, next: ''}; });
+    }
   });
 }
 
@@ -653,8 +803,8 @@ function rootScriptOutput(execPromise) {
     if (out) return out;
     const text = String((err && err.errorText) || '').trim();
     throw new Error(/command failed/i.test(text)
-      ? 'root command failed'
-      : (text || 'Homebrew Channel exec failed'));
+      ? 'comando root non riuscito'
+      : (text || 'esecuzione tramite Homebrew Channel non riuscita'));
   });
 }
 
@@ -670,18 +820,19 @@ export function enableVoice() {
   const cmd =
     'chmod 755 "' + VOICE_ENABLE + '" "' + VOICE_RUN + '" 2>/dev/null; sh "' +
     VOICE_ENABLE + '"';
-  return rootScriptOutput(execRoot(cmd, 150000)).then(function (out) {
+  return rootScriptOutput(execRootLong(cmd, 150000)).then(function (out) {
     if (out.indexOf('missing_voice') >= 0) {
-      throw new Error('voice files are missing from Cinema');
+      throw new Error('file della voce mancanti in Cinema');
     }
-    if (out.indexOf('missing_python') >= 0) {
-      throw new Error('this TV has no Python 3');
+    if (out.indexOf('missing_python') >= 0 || out.indexOf('unsupported') >= 0) {
+      // This TV runs Python 2.7 only; the daemon needs 3.7-3.12 (the script says which it found).
+      throw new Error('Python 3.7-3.12 non presente sulla TV');
     }
     if (out.indexOf('card_install_failed') >= 0) {
-      throw new Error('could not install the voice card');
+      throw new Error('installazione della scheda voce non riuscita');
     }
     if (out.indexOf('enabled') < 0) {
-      throw new Error(out.split('\n')[0] || 'voice assistant did not start');
+      throw new Error(out.split('\n')[0] || 'l’assistente vocale non è partito');
     }
     const other = /other_voice=voxrelay:(\w+)/.exec(out);
     return {
@@ -706,9 +857,9 @@ export function isVoiceRunning() {
 export function disableVoice() {
   const cmd =
     'chmod 755 "' + VOICE_DISABLE + '" 2>/dev/null; sh "' + VOICE_DISABLE + '"';
-  return rootScriptOutput(execRoot(cmd, 45000)).then(function (out) {
+  return rootScriptOutput(execRootLong(cmd, 45000)).then(function (out) {
     if (out.indexOf('disabled') < 0) {
-      throw new Error(out.split('\n')[0] || 'voice assistant did not stop');
+      throw new Error(out.split('\n')[0] || 'l’assistente vocale non si è fermato');
     }
     return true;
   });
@@ -750,10 +901,10 @@ export function enableBootLaunch() {
     '" 2>/dev/null; sh "' + BOOT_LAUNCH_ENABLE + '"';
   return rootScriptOutput(execRoot(cmd, 12000)).then(function (out) {
     if (out.indexOf('missing_boot_script') >= 0) {
-      throw new Error('boot-launch.sh not installed on TV');
+      throw new Error('boot-launch.sh non installato sulla TV');
     }
     if (out.indexOf('enabled') < 0) {
-      throw new Error(out.split('\n')[0] || 'boot launch failed to install');
+      throw new Error(out.split('\n')[0] || 'installazione dell’avvio automatico non riuscita');
     }
     return true;
   });
@@ -842,14 +993,14 @@ function switchInputViaEim(inputId) {
     if (status && status.appId) {
       return launchApp(status.appId);
     }
-    throw new Error('Input has no launchable app');
+    throw new Error('L’ingresso non ha un’app da avviare');
   });
 }
 
 function switchInputViaExtinputs(inputId) {
   const hdmiMatch = inputId.match(/^HDMI_(\d+)$/i);
   if (!hdmiMatch) {
-    return Promise.reject(new Error('extinputs only supports HDMI inputs'));
+    return Promise.reject(new Error('extinputs supporta solo gli ingressi HDMI'));
   }
 
   const mediaId = hdmiMatch[1];
@@ -872,6 +1023,7 @@ function switchInputViaExtinputs(inputId) {
 }
 
 export function switchInput(inputId, device) {
+  markUserInput();
   if (device && device.appId) {
     return launchApp(device.appId).catch(function () {
       return switchInputViaApiAdapter(inputId)
@@ -1133,7 +1285,7 @@ const TVTOOLS_DISABLE = HOME_WATCHER_APP_DIR + '/disable-tvtools.sh';
 export function tvToolsStatus() {
   const cmd = 'PY=$(command -v python3 || command -v python); [ -n "$PY" ] || { echo no-python; exit 0; }; ' +
     'F=' + shQuote(TVTOOLS_ROOT_COPY) + '; [ -f "$F" ] || F=' + shQuote(TVTOOLS_APP) + '; "$PY" "$F" status';
-  return execRoot(cmd, 40000).then(function (res) {
+  return execRootLong(cmd, 40000).then(function (res) {
     const out = readExecStdout(res);
     if (!out || out.indexOf('no-python') === 0) return null;
     return JSON.parse(out.slice(out.indexOf('{')));
@@ -1153,8 +1305,8 @@ export async function tvToolsApply(conf) {
   await writeFileAsRoot(TVTOOLS_CONF, JSON.stringify(conf));
   await rootScriptOutput(execRoot('chmod 600 ' + shQuote(TVTOOLS_CONF) + ' && echo ok', 8000));
   const script = any ? TVTOOLS_ENABLE : TVTOOLS_DISABLE;
-  const out = await rootScriptOutput(execRoot('sh ' + shQuote(script) + ' ' + shQuote(HOME_WATCHER_APP_DIR), 60000));
-  if (out.indexOf(any ? 'enabled' : 'disabled') < 0) throw new Error(out.split('\n')[0] || 'TV tools failed');
+  const out = await rootScriptOutput(execRootLong('sh ' + shQuote(script) + ' ' + shQuote(HOME_WATCHER_APP_DIR), 60000));
+  if (out.indexOf(any ? 'enabled' : 'disabled') < 0) throw new Error(out.split('\n')[0] || 'strumenti TV non applicati');
   return any;
 }
 
@@ -1168,7 +1320,9 @@ export function tvToolsRefresh() {
     // A changed daemon, or a check script not yet installed (0.2.0), is put in place.
     '{ cmp -s ' + shQuote(TVTOOLS_APP) + ' ' + shQuote(TVTOOLS_ROOT_COPY) + ' && cmp -s ' +
     shQuote(HOME_WATCHER_APP_DIR + '/failsafe-check.sh') + ' ' +
-    shQuote('/var/lib/launch-home-cinema/tvtools/failsafe-check.sh') + '; } || { sh ' + shQuote(TVTOOLS_ENABLE) + ' ' +
+    shQuote('/var/lib/launch-home-cinema/tvtools/failsafe-check.sh') + ' && cmp -s ' +
+    shQuote(HOME_WATCHER_APP_DIR + '/hbchannel-watchdog.sh') + ' ' +
+    shQuote('/var/lib/launch-home-cinema/tvtools/hbchannel-watchdog.sh') + '; } || { sh ' + shQuote(TVTOOLS_ENABLE) + ' ' +
     shQuote(HOME_WATCHER_APP_DIR) + '; exit 0; }; ' +
     // Installed but not running: Homebrew Channel skipped its boot hooks
     // (failsafe mode, after the power went off while they ran). Start it now.
@@ -1176,7 +1330,7 @@ export function tvToolsRefresh() {
     'if [ -n "$P" ] && grep -q tvtools.py /proc/$P/cmdline 2>/dev/null; then echo running; exit 0; fi; ' +
     'PY=$(command -v python3 || command -v python); ' +
     'setsid "$PY" ' + shQuote(TVTOOLS_ROOT_COPY) + ' daemon </dev/null >/dev/null 2>&1 & echo restarted';
-  return rootScriptOutput(execRoot(cmd, 60000));
+  return rootScriptOutput(execRootLong(cmd, 60000));
 }
 
 /**
@@ -1203,7 +1357,7 @@ const UPDATE_SCRIPT = HOME_WATCHER_APP_DIR + '/update-app.py';
 export function appUpdatesCheck() {
   const cmd = 'PY=$(command -v python3 || command -v python); [ -n "$PY" ] || { echo no-python; exit 0; }; "$PY" ' +
     shQuote(UPDATE_SCRIPT) + ' check';
-  return execRoot(cmd, 45000).then(function (res) {
+  return execRootLong(cmd, 45000).then(function (res) {
     const out = readExecStdout(res);
     if (!out || out.indexOf('{') < 0) return null;
     return JSON.parse(out.slice(out.indexOf('{')));
@@ -1213,9 +1367,13 @@ export function appUpdatesCheck() {
 /** Start installing the latest release of `appId`, detached (it may close Cinema). */
 export function appUpdateInstall(appId) {
   if (!/^[a-z0-9.]+$/.test(appId)) return Promise.reject(new Error('bad app id'));
-  const cmd = 'PY=$(command -v python3 || command -v python); rm -f /run/cinema-tvtools/update.json; ' +
+  const cmd = 'PY=$(command -v python3 || command -v python); [ -n "$PY" ] || { echo no-python; exit 0; }; ' +
+    'rm -f /run/cinema-tvtools/update.json; ' +
     'setsid "$PY" ' + shQuote(UPDATE_SCRIPT) + ' install ' + shQuote(appId) + ' </dev/null >/dev/null 2>&1 & echo started';
-  return rootScriptOutput(execRoot(cmd, 10000));
+  return rootScriptOutput(execRoot(cmd, 10000)).then(function (out) {
+    if (out.indexOf('no-python') >= 0) throw new Error('Python non presente sulla TV');
+    return out;
+  });
 }
 
 /** Progress of the last install: {state, app, version, error} or null. */
@@ -1230,10 +1388,10 @@ export function tvToolsConsent(key, on) {
   if (!/^[A-Za-z0-9]+$/.test(key)) return Promise.reject(new Error('bad key'));
   const cmd = 'PY=$(command -v python3 || command -v python); F=' + shQuote(TVTOOLS_ROOT_COPY) +
     '; [ -f "$F" ] || F=' + shQuote(TVTOOLS_APP) + '; "$PY" "$F" consent ' + key + ' ' + (on ? 'on' : 'off');
-  return execRoot(cmd, 30000).then(function (res) {
+  return execRootLong(cmd, 30000).then(function (res) {
     const out = readExecStdout(res);
     const r = JSON.parse(out.slice(out.indexOf('{')));
-    if (!r.ok) throw new Error(r.error || 'not applied');
+    if (!r.ok) throw new Error(r.error || 'non applicato');
     return r;
   });
 }

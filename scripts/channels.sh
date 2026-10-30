@@ -10,11 +10,24 @@
 #   channels.sh tune ID        make ID the last channel: the embedded tv://
 #                              picture opens on it; prints "tuned"
 #   channels.sh programme ID   name of the programme on ID now
+#   channels.sh programme-info ID
+#                              the same, as one JSON line:
+#                              {"name":"…","start":EPOCH,"end":EPOCH,"next":"…"}
+#                              (0 and "" when the guide does not say)
 #
 # A channel list can be big (a satellite scan has 1000+ channels at about 1 KB
 # each), so it is cut down here to one short line per channel.
 
 API=luna://com.webos.service.apiadapter/tv
+
+# Some busybox builds only sleep whole seconds.
+sleep 0.1 2>/dev/null || SLEEP_INT=1
+nap() {
+  case "$1" in
+    *.*) if [ -n "$SLEEP_INT" ]; then sleep 1; else sleep "$1"; fi ;;
+    *) sleep "$1" ;;
+  esac
+}
 
 # One Luna reply on a single line.
 call() {
@@ -80,7 +93,7 @@ case "$1" in
       done
       # Live TV may still be starting: give it a moment, then try once more.
       try=$((try + 1))
-      sleep 1.5
+      nap 1.5
     done
     echo failed
     exit 1
@@ -106,8 +119,43 @@ case "$1" in
     call "$API/getChannelCurrentProgramInfo" "{\"channelId\":\"$id\"}" |
       awk "$AWK_FIELD"'{ print field("programName") }'
     ;;
+  programme-info)
+    # Name, start and end as epoch seconds, and the programme after, from the
+    # same reply. The guide gives times as epoch seconds or milliseconds
+    # (startTime/endTime), as "YYYY,MM,DD,hh,mm,ss" strings (localStartTime)
+    # or as start + duration in seconds; 0 when none of them is there.
+    id=$(printf '%s' "$2" | tr -cd 'A-Za-z0-9_.-')
+    [ -n "$id" ] || exit 1
+    call "$API/getChannelCurrentProgramInfo" "{\"channelId\":\"$id\"}" |
+      awk "$AWK_FIELD"'
+      function epoch(v,    n, p) {
+        if (v == "") return 0
+        if (v ~ /^[0-9]+$/) { if (length(v) > 11) v = substr(v, 1, length(v) - 3); return v + 0 }
+        n = split(v, p, /[-,T: ]/)
+        if (n >= 5 && p[1] ~ /^[0-9]{4}$/) return mktime(p[1] " " p[2] " " p[3] " " p[4] " " p[5] " " (n >= 6 ? p[6] : 0))
+        return 0
+      }
+      # field() leaves a string JSON-escaped (inner quotes stay \"): it goes
+      # out as it is, minus a lone trailing backslash from a cut value.
+      function jsonq(s,    n) {
+        n = 0
+        while (n < length(s) && substr(s, length(s) - n, 1) == "\\") n++
+        if (n % 2) s = substr(s, 1, length(s) - 1)
+        gsub(/\t/, " ", s)
+        return s
+      }
+      {
+        name = field("programName")
+        st = epoch(field("startTime")); if (!st) st = epoch(field("localStartTime"))
+        en = epoch(field("endTime")); if (!en) en = epoch(field("localEndTime"))
+        dur = field("duration")
+        if (!en && st && dur ~ /^[0-9]+$/) en = st + dur
+        nxt = field("nextProgramName"); if (nxt == "") nxt = field("nextProgram")
+        printf "{\"name\":\"%s\",\"start\":%d,\"end\":%d,\"next\":\"%s\"}\n", jsonq(name), st, en, jsonq(nxt)
+      }'
+    ;;
   *)
-    echo "usage: channels.sh list | now | open ID NUMBER | current | tune ID | programme ID"
+    echo "usage: channels.sh list | now | open ID NUMBER | current | tune ID | programme ID | programme-info ID"
     exit 2
     ;;
 esac

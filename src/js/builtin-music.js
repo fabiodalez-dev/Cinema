@@ -1,9 +1,13 @@
-import {fetchJson, joinPath} from './usb.js';
+import {fetchJson} from './usb.js';
 import {resolveAppUrl, withAssetVersion} from './compat.js';
 import {APP_VERSION} from './version.js';
 
 const BUILTIN_MANIFEST = 'assets/music/manifest.json';
-const BUILTIN_BASE = 'assets/music/';
+// The tracks are not in the IPK (7 MB): with music on they stream from this
+// repo via jsDelivr, pinned to this version's tag (the CDN marks the files
+// immutable, so the TV caches them after the first play). The manifest still
+// ships. Offline, music.js says music is unavailable instead of retrying.
+const MUSIC_BASE = 'https://cdn.jsdelivr.net/gh/fabiodalez-dev/Cinema@v' + APP_VERSION + '/assets/music/';
 
 /**
  * Hard-coded list matching assets/music/manifest.json.
@@ -99,30 +103,16 @@ export async function loadBuiltinMusicManifest() {
   return manifestCache;
 }
 
-/** Preferred URL for a packaged track (absolute file:// when possible). */
+/** Streaming URL of a built-in track (see MUSIC_BASE). */
 export function builtinTrackUrl(file) {
   if (!file) return '';
-  const rel = joinPath(BUILTIN_BASE, file);
-  const absolute = resolveAppUrl(rel);
-  if (absolute && absolute !== rel) return absolute;
-  return withAssetVersion(rel, APP_VERSION);
+  return MUSIC_BASE + String(file).replace(/^\/+/, '');
 }
 
-/** URL candidates to try — relative first (most reliable for <audio> on webOS). */
+/** URL candidates to try for a built-in track: the one CDN copy. */
 export function builtinTrackCandidates(file) {
-  if (!file) return [];
-  const rel = joinPath(BUILTIN_BASE, file);
-  const absolute = resolveAppUrl(rel);
-  const out = [];
-  function push(u) {
-    if (u && out.indexOf(u) < 0) out.push(u);
-  }
-  // Packaged relative paths load best in WAM for media elements.
-  push(rel);
-  push(withAssetVersion(rel, APP_VERSION));
-  // Absolute file:// last — some webOS builds block file:// media.
-  push(absolute);
-  return out;
+  const url = builtinTrackUrl(file);
+  return url ? [url] : [];
 }
 
 export function getBuiltinTrackUrl(id, manifest) {

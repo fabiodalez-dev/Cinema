@@ -4,7 +4,10 @@ import {APP_VERSION} from './version.js';
 import {AERIAL_BACKGROUNDS} from './aerials.js';
 
 const BUILTIN_MANIFEST = 'assets/backgrounds/manifest.json';
-const BUILTIN_BASE = 'assets/backgrounds/';
+// The packaged set is the 1920px one (assets/backgrounds/1920/); the 4K
+// originals stay in the repo and are fetched on request (see HD_WALLPAPER_BASE).
+const BUILTIN_BASE = 'assets/backgrounds/1920/';
+const BUILTIN_THUMB_BASE = 'assets/backgrounds/';
 
 /**
  * Hard-coded list matching assets/backgrounds/manifest.json.
@@ -31,31 +34,28 @@ function u(photoId) {
   return 'https://images.unsplash.com/photo-' + photoId + UNSPLASH_PARAMS_4K;
 }
 
-// Performance mode: 1920px wallpapers (~¼ of the pixels to decode and hold in
-// memory on slower TVs); otherwise the 4K originals. Applied when an image is
-// picked for display, so saved choices never change.
-//
-// The IPK only packages the 4K built-ins. Their 1920px copies are downloaded
-// from this repo (assets/backgrounds/1920/, excluded from the package) via
-// jsDelivr, pinned to the tag that added them so the URLs never change; the
-// CDN marks them immutable, so the TV caches each one after the first view.
-// Offline or unreachable → the packaged 4K is used instead.
-const LITE_WALLPAPER_BASE =
-  'https://cdn.jsdelivr.net/gh/gprot42/webos-launch-home@v0.0.104/assets/backgrounds/1920/';
-const LITE_RETRY_MS = 10 * 60 * 1000;
+// Performance mode (the default) shows the packaged 1920px wallpapers: ¼ of
+// the pixels to decode and hold in memory. With it off, the 4K originals are
+// asked for explicitly: they are not in the IPK but downloaded from this repo
+// via jsDelivr, pinned to this version's tag so the URLs never change (the CDN
+// marks them immutable, so the TV caches each one after the first view).
+// Offline or unreachable → the packaged 1920px copy is used instead. Applied
+// when an image is picked for display, so saved choices never change.
+const HD_WALLPAPER_BASE =
+  'https://cdn.jsdelivr.net/gh/fabiodalez-dev/Cinema@v' + APP_VERSION + '/assets/backgrounds/';
+const HD_RETRY_MS = 10 * 60 * 1000;
 
 let liteImages = false;
-let liteProbe = null; // {ok: boolean, at: number} — can the CDN copies load?
+let hdProbe = null; // {ok: boolean, at: number} — can the CDN originals load?
 
 export function setLiteImages(on) {
   liteImages = !!on;
 }
 
-/** Downloadable 1920px copy of a packaged built-in, from any of its URL forms. */
-function liteBuiltinUrl(url) {
-  const m = /(?:^|\/)assets\/backgrounds\/([^/?#]+\.jpg)(?:[?#]|$)/.exec(String(url || ''));
-  if (m && m[1] === 'mountain-sunset.jpg') return resolveAppUrl('assets/backgrounds/1920/mountain-sunset.jpg');
-  return m ? LITE_WALLPAPER_BASE + m[1] : '';
+/** Downloadable 4K original of a packaged built-in, from any of its URL forms. */
+function hdBuiltinUrl(url) {
+  const m = /(?:^|\/)assets\/backgrounds\/1920\/([^/?#]+\.jpg)(?:[?#]|$)/.exec(String(url || ''));
+  return m ? HD_WALLPAPER_BASE + m[1] : '';
 }
 
 function imageLoads(url, timeoutMs) {
@@ -75,29 +75,31 @@ function imageLoads(url, timeoutMs) {
 }
 
 /** One reachability check per session (re-tried every 10 min after a miss). */
-function liteCopiesReachable(sampleUrl) {
+function hdOriginalsReachable(sampleUrl) {
   const now = Date.now();
-  if (liteProbe && (liteProbe.ok || now - liteProbe.at < LITE_RETRY_MS)) {
-    return Promise.resolve(liteProbe.ok);
+  if (hdProbe && (hdProbe.ok || now - hdProbe.at < HD_RETRY_MS)) {
+    return Promise.resolve(hdProbe.ok);
   }
   return imageLoads(sampleUrl, 6000).then(function (ok) {
-    liteProbe = {ok: ok, at: Date.now()};
+    hdProbe = {ok: ok, at: Date.now()};
     return ok;
   });
 }
 
 /**
- * Performance mode for built-ins. A single photo gets the 1920px download
- * first and its packaged 4K forms as fallbacks (the background controller
- * tries them in order). A photo list (slideshow, screensaver) has no per-image
- * fallback, so it switches to the downloads only once they're known to load.
+ * Full quality for built-ins (performance mode off). A single photo gets the
+ * 4K download first and its packaged 1920px forms as fallbacks (the background
+ * controller tries them in order). A photo list (slideshow, screensaver) has no
+ * per-image fallback, so it switches to the downloads only once they're known
+ * to load. Offline, the packaged copies are used without asking the network.
  */
-function liteBuiltinImages(images, mode) {
-  const lite = images.map(liteBuiltinUrl);
-  if (!lite[0]) return Promise.resolve(images);
-  if (mode !== 'slideshow') return Promise.resolve([lite[0]].concat(images));
-  return liteCopiesReachable(lite[0]).then(function (ok) {
-    return ok ? images.map(function (url, i) { return lite[i] || url; }) : images;
+function hdBuiltinImages(images, mode) {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve(images);
+  const hd = images.map(hdBuiltinUrl);
+  if (!hd[0]) return Promise.resolve(images);
+  if (mode !== 'slideshow') return Promise.resolve([hd[0]].concat(images));
+  return hdOriginalsReachable(hd[0]).then(function (ok) {
+    return ok ? images.map(function (url, i) { return hd[i] || url; }) : images;
   });
 }
 
@@ -314,13 +316,19 @@ export async function loadBuiltinManifest() {
   return builtinCache;
 }
 
+/** Packaged path of a built-in: the 1920px photo, or a picker thumbnail. */
+function builtinPath(file) {
+  const name = String(file);
+  return name.indexOf('thumbs/') === 0 ? joinPath(BUILTIN_THUMB_BASE, name) : joinPath(BUILTIN_BASE, name);
+}
+
 /**
  * URL candidates for a packaged background image (first usually wins).
  * Absolute file:// first (most reliable on webOS 4); relative as fallback.
  */
 export function builtinImageUrl(file) {
   if (!file) return '';
-  const rel = joinPath(BUILTIN_BASE, file);
+  const rel = builtinPath(file);
   const absolute = resolveAppUrl(rel);
   // Prefer absolute file:// without query string (webOS 4-safe).
   if (absolute && absolute !== rel) return absolute;
@@ -330,7 +338,7 @@ export function builtinImageUrl(file) {
 /** All URL forms to try for a builtin file (absolute, relative, versioned). */
 export function builtinImageCandidates(file) {
   if (!file) return [];
-  const rel = joinPath(BUILTIN_BASE, file);
+  const rel = builtinPath(file);
   const absolute = resolveAppUrl(rel);
   const out = [];
   function push(u) {
@@ -407,10 +415,10 @@ export async function resolveBackgroundMedia(config, usbPath) {
   if (bg.source === 'aerial') return aerialMedia(bg);
 
   const urls = await resolveImagesAtSourceSize(config, usbPath);
-  if (!liteImages) return mediaDescriptors(urls.map(jpegForTv), MEDIA_IMAGE);
   if (bg.source === 'builtin') {
-    return mediaDescriptors(await liteBuiltinImages(urls, bg.mode), MEDIA_IMAGE);
+    return mediaDescriptors(liteImages ? urls : await hdBuiltinImages(urls, bg.mode), MEDIA_IMAGE);
   }
+  if (!liteImages) return mediaDescriptors(urls.map(jpegForTv), MEDIA_IMAGE);
   return mediaDescriptors(urls.map(sizeForDisplay).map(jpegForTv), MEDIA_IMAGE);
 }
 

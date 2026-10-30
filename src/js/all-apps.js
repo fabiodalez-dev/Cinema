@@ -37,7 +37,7 @@ export function createAllApps(options) {
     title.textContent = 'Tutte le app';
     const hint = document.createElement('span');
     hint.className = 'all-apps-hint';
-    hint.textContent = 'OK opens an app · Back closes';
+    hint.textContent = 'OK apre un\u2019app · Indietro chiude';
     head.appendChild(title);
     head.appendChild(hint);
 
@@ -71,6 +71,7 @@ export function createAllApps(options) {
       const img = document.createElement('img');
       img.className = 'app-icon';
       img.alt = '';
+      img.decoding = 'async';
       img.addEventListener('error', function () {
         if (img.parentNode) img.parentNode.replaceChild(badge(app.title), img);
       });
@@ -93,7 +94,7 @@ export function createAllApps(options) {
     if (!apps.length) {
       const empty = document.createElement('p');
       empty.className = 'all-apps-note';
-      empty.textContent = 'Couldn’t read the TV’s apps. This needs root (Homebrew Channel).';
+      empty.textContent = 'Impossibile leggere le app della TV. Serve il root (Homebrew Channel).';
       grid.appendChild(empty);
       return;
     }
@@ -128,7 +129,7 @@ export function createAllApps(options) {
       grid.innerHTML = '';
       const loading = document.createElement('p');
       loading.className = 'all-apps-note';
-      loading.textContent = 'Reading the TV’s apps…';
+      loading.textContent = 'Lettura delle app della TV…';
       grid.appendChild(loading);
       const gen = ++loadGen;
       const apps = await load();

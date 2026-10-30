@@ -23,8 +23,10 @@ class ChannelsScript(unittest.TestCase):
                         '  *getChannelList*) cat "' + bin_dir + '/list.json" ;;\n'
                         '  *getLastChannelId*) echo \'{"channelId":"1_38_4_4_930_3004_272","returnValue":true}\' ;;\n'
                         '  *setLastChannelId*) echo \'{ "returnValue": true }\' ;;\n'
-                        '  *getChannelCurrentProgramInfo*) echo \'{"returnValue":true,"programName":"Tg4"}\' ;;\n'
+                        '  *getChannelCurrentProgramInfo*) cat "' + bin_dir + '/programme.json" ;;\n'
                         'esac\n')
+            with open(os.path.join(bin_dir, 'programme.json'), 'w') as f:
+                json.dump(getattr(self, 'programme', {'returnValue': True, 'programName': 'Tg4'}), f, indent=2)
             os.chmod(fake, stat.S_IRWXU)
             # Pretty-printed, as luna-send prints it.
             with open(os.path.join(bin_dir, 'list.json'), 'w') as f:
@@ -44,6 +46,26 @@ class ChannelsScript(unittest.TestCase):
         out, calls = self.run_script('tune', '1_38_4_4_930_3004_272";rm -rf /')
         self.assertEqual(out.strip(), 'tuned')
         self.assertIn('setLastChannelId {"channelId":"1_38_4_4_930_3004_272rm-rf"}', calls)
+        self.assertEqual(self.run_script('programme', '1_38_4_4_930_3004_272')[0].strip(), 'Tg4')
+
+    def test_programme_info_is_one_json_line_from_the_same_reply(self):
+        # Epoch seconds, as the EPG gives them, and the programme after.
+        self.programme = {'returnValue': True, 'programName': 'Tg4 "Sera"', 'startTime': 1761771600,
+                          'endTime': 1761773400, 'nextProgramName': 'Film'}
+        out, calls = self.run_script('programme-info', '1_38_4_4_930_3004_272')
+        self.assertEqual(json.loads(out), {'name': 'Tg4 "Sera"', 'start': 1761771600, 'end': 1761773400, 'next': 'Film'})
+        self.assertEqual(len(out.strip().splitlines()), 1)
+        self.assertIn('getChannelCurrentProgramInfo {"channelId":"1_38_4_4_930_3004_272"}', calls)
+        # Milliseconds and a duration instead of an end.
+        self.programme = {'returnValue': True, 'programName': 'Tg4', 'startTime': 1761771600000, 'duration': 1800}
+        self.assertEqual(json.loads(self.run_script('programme-info', '1_38_4_4_930_3004_272')[0]),
+                         {'name': 'Tg4', 'start': 1761771600, 'end': 1761773400, 'next': ''})
+        # Nothing known: zeros and empty strings, still valid JSON.
+        self.programme = {'returnValue': False, 'errorText': 'no programme'}
+        self.assertEqual(json.loads(self.run_script('programme-info', '1_38_4_4_930_3004_272')[0]),
+                         {'name': '', 'start': 0, 'end': 0, 'next': ''})
+        # The plain subcommand is unchanged.
+        self.programme = {'returnValue': True, 'programName': 'Tg4', 'startTime': 1}
         self.assertEqual(self.run_script('programme', '1_38_4_4_930_3004_272')[0].strip(), 'Tg4')
 
 

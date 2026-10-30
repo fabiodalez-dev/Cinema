@@ -20,6 +20,15 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# Some busybox builds only sleep whole seconds.
+sleep 0.1 2>/dev/null || SLEEP_INT=1
+nap() {
+  case "$1" in
+    *.*) if [ -n "$SLEEP_INT" ]; then sleep 1; else sleep "$1"; fi ;;
+    *) sleep "$1" ;;
+  esac
+}
+
 # This TV generation's luna-send prints nothing without -i.
 luna() {
   luna-send -i -n 1 -w 4000 -f "$1" "$2" 2>/dev/null </dev/null | tr -s ' \n' '  '
@@ -97,7 +106,7 @@ close_settings() {
     esac
     i=0
     while [ "$i" -lt 8 ]; do
-      sleep 0.4
+      nap 0.4
       if ! settings_on_screen "$csid"; then
         closed=1
         close_how=$how
@@ -133,7 +142,7 @@ open_settings() {
       shown=1
       break
     fi
-    sleep 0.2
+    nap 0.2
   done
   s2=$(uptime_cs)
   sw1=$(swapin_pages)
@@ -144,7 +153,7 @@ open_settings() {
   busy_pct=$1
   wait_pct=$2
   swap_mb=$(( (${sw1:-0} - ${sw0:-0}) * 4 / 1024 ))
-  sleep 0.5
+  nap 0.5
   tail -n +$((n0 + 1)) "$SYSLOG" 2>/dev/null | head -n 400 > "$LOGTMP"
   # Where the time went: launch -> loading spinner -> Settings on screen.
   tb=$(grep 'NL_APP_LAUNCH_BEGIN' "$LOGTMP" | grep "\"$osid\"" | log_cs)

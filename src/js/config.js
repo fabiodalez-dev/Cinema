@@ -178,20 +178,20 @@ export function coerceScreensaverMinutes(minutes) {
 
 export const TIMEZONE_OPTIONS = [
   {value: '', label: 'Ora locale della TV'},
-  {value: 'America/Los_Angeles', label: 'Pacific (US)'},
-  {value: 'America/Denver', label: 'Mountain (US)'},
-  {value: 'America/Chicago', label: 'Central (US)'},
-  {value: 'America/New_York', label: 'Eastern (US)'},
-  {value: 'America/Anchorage', label: 'Alaska (US)'},
-  {value: 'Pacific/Honolulu', label: 'Hawaii (US)'},
-  {value: 'America/Toronto', label: 'Eastern (Canada)'},
-  {value: 'America/Vancouver', label: 'Pacific (Canada)'},
-  {value: 'Europe/London', label: 'London'},
-  {value: 'Europe/Paris', label: 'Paris'},
-  {value: 'Europe/Berlin', label: 'Berlin'},
+  {value: 'America/Los_Angeles', label: 'Pacifico (USA)'},
+  {value: 'America/Denver', label: 'Montagne Rocciose (USA)'},
+  {value: 'America/Chicago', label: 'Centrale (USA)'},
+  {value: 'America/New_York', label: 'Orientale (USA)'},
+  {value: 'America/Anchorage', label: 'Alaska (USA)'},
+  {value: 'Pacific/Honolulu', label: 'Hawaii (USA)'},
+  {value: 'America/Toronto', label: 'Orientale (Canada)'},
+  {value: 'America/Vancouver', label: 'Pacifico (Canada)'},
+  {value: 'Europe/London', label: 'Londra'},
+  {value: 'Europe/Paris', label: 'Parigi'},
+  {value: 'Europe/Berlin', label: 'Berlino'},
   {value: 'Europe/Helsinki', label: 'Helsinki'},
   {value: 'Asia/Tokyo', label: 'Tokyo'},
-  {value: 'Asia/Seoul', label: 'Seoul'},
+  {value: 'Asia/Seoul', label: 'Seul'},
   {value: 'Asia/Singapore', label: 'Singapore'},
   {value: 'Australia/Sydney', label: 'Sydney'},
   {value: 'UTC', label: 'UTC'}
@@ -260,21 +260,20 @@ function migrateConfig(config) {
     config.version = 5;
   }
 
+  // v6/v7 once pushed new tiles into every dock. A dock the owner has
+  // arranged (or a restored backup) keeps its tiles; only a missing list
+  // gets the defaults.
   if ((config.version || 1) < 6) {
-    const pinned = config.launcher.pinnedApps || [];
-    if (pinned.indexOf('com.apple.appletv') < 0) {
-      pinned.push('com.apple.appletv');
+    if (!Array.isArray(config.launcher.pinnedApps)) {
+      config.launcher.pinnedApps = ['com.apple.appletv'];
     }
-    config.launcher.pinnedApps = pinned;
     config.version = 6;
   }
 
   if ((config.version || 1) < 7) {
-    const pinned = config.launcher.pinnedApps || [];
-    ['bbc.iplayer.lge', 'com.webos.app.browser', 'com.webos.app.mediadiscovery'].forEach(function (id) {
-      if (pinned.indexOf(id) < 0) pinned.push(id);
-    });
-    config.launcher.pinnedApps = pinned;
+    if (!Array.isArray(config.launcher.pinnedApps)) {
+      config.launcher.pinnedApps = ['bbc.iplayer.lge', 'com.webos.app.browser', 'com.webos.app.mediadiscovery'];
+    }
     config.version = 7;
   }
 
@@ -363,14 +362,15 @@ function migrateConfig(config) {
   }
 
   if ((config.version || 1) < 17) {
-    // Re-enable ambient music if it was left off; add music-bar visibility flag.
+    // Music-bar visibility flag. Music switched off on purpose stays off:
+    // this step used to turn it back on (also when restoring an old backup).
     if (!config.music) config.music = {};
-    config.music.enabled = true;
+    if (typeof config.music.enabled !== 'boolean') config.music.enabled = true;
     config.music.source = config.music.source || 'builtin';
     if (typeof config.music.showBar !== 'boolean') {
       config.music.showBar = false;
     }
-    if (typeof config.music.volume !== 'number' || config.music.volume < 0.2) {
+    if (typeof config.music.volume !== 'number') {
       config.music.volume = 0.35;
     }
     // Cinema profile still disables music via profile overlay when selected.
@@ -477,9 +477,16 @@ function migrateConfig(config) {
   return config;
 }
 
+/** Where unreadable settings are kept (not lost) when the defaults take over. */
+export const CORRUPT_STORAGE_KEY = 'lounge.config.corrupt';
+let corruptConfigFound = false;
+/** True when this start fell back to the defaults because the stored settings were unreadable. */
+export function configWasCorrupt() { return corruptConfigFound; }
+
 export function loadConfig() {
+  let raw = null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    raw = localStorage.getItem(STORAGE_KEY);
     const config = !raw ? deepMerge({}, DEFAULT_CONFIG) : deepMerge(DEFAULT_CONFIG, JSON.parse(raw));
     config.background = normalizeBackgroundConfig(config.background);
     config.music = normalizeMusicConfig(config.music);
@@ -488,6 +495,12 @@ export function loadConfig() {
     if (raw && JSON.stringify(config) !== before) saveConfig(config);
     return config;
   } catch (err) {
+    // The text is kept beside the key: the first save would otherwise write
+    // the defaults over it, and Backup & restore can still read the copy.
+    if (raw) {
+      corruptConfigFound = true;
+      try { localStorage.setItem(CORRUPT_STORAGE_KEY, raw); } catch (e) { /* no room */ }
+    }
     const config = deepMerge({}, DEFAULT_CONFIG);
     config.background = normalizeBackgroundConfig(config.background);
     config.music = normalizeMusicConfig(config.music);
@@ -602,8 +615,19 @@ export function configFromBackup(data, current) {
   };
 }
 
+/**
+ * Store the settings. False, never an exception, when storage refuses (quota
+ * shared with icons and channel lists): Save used to stop in that throw with
+ * the panel still open and no word to the owner.
+ */
 export function saveConfig(config) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    return true;
+  } catch (err) {
+    console.error('settings not saved', err);
+    return false;
+  }
 }
 
 export function applyUsbConfig(config, usbConfig) {

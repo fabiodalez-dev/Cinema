@@ -1,6 +1,6 @@
 {
   "id": "org.webosbrew.lounge.launcher",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "vendor": "webOS Homebrew",
   "type": "web",
   "main": "index.html",
@@ -8,7 +8,8 @@
   "icon": "assets/icon-80-v8.png",
   "miniicon": "assets/icon-60-v8.png",
   "largeIcon": "assets/icon-130-v8.png",
-  "iconColor": "#0f3d4a",
+  "iconColor": "#050507",
+  "splashBackground": "assets/splash.png",
   "uiRevision": 2,
   "disableBackHistoryAPI": true,
   "appDescription": "La tua Home, con Jellyfin, Live TV e tutte le tue app.",

@@ -74,7 +74,7 @@ export function createInputRow(container, getConfig, options) {
       button.className = 'input-chip input-chip-channels focusable';
       button.dataset.focusIndex = String(100 + visible.length);
       button.dataset.channelsChip = '1';
-      button.textContent = 'Channels';
+      button.textContent = 'Canali';
       button.setAttribute('aria-expanded', channels.isOpen() ? 'true' : 'false');
       if (channels.isOpen()) button.classList.add('active');
       button.addEventListener('click', function () {
@@ -91,7 +91,7 @@ export function createInputRow(container, getConfig, options) {
       currentInputId = device.id;
       render();
     } catch (err) {
-      if (options.onToast) options.onToast('Could not switch to ' + labelFor(device));
+      if (options.onToast) options.onToast('Impossibile passare a ' + labelFor(device));
     }
   }
 

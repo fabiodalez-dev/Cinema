@@ -7,9 +7,10 @@ import {createLivePreview, liveDevices} from './cinema-live.js';
 import {createZapper} from './live-zapping.js';
 import {digitFromKey} from './remote.js';
 import nativeCatalog from '../../assets/native-icons/catalog.json';
-import {request} from './cinema-jellyfin.js';
-import {execRoot,listApps} from './luna.js';
-import {createJellyfinClient, validConnection} from './cinema-jellyfin.js';
+import {request, mergeContinue, quickConnect, createJellyfinClient, validConnection} from './cinema-jellyfin.js';
+import * as luna from './luna.js';
+import {APP_VERSION} from './version.js';
+import {sentenceCase} from './clock-format.js';
 
 const PREFS = 'launch-home.cinema.v1';
 const CACHE = 'launch-home.cinema.media.v1';
@@ -17,6 +18,19 @@ const PRIVATE_CONNECTION = '/var/lib/launch-home-cinema/jellyfin.json';
 function read(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch (_) { return fallback; } }
 function write(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (_) { return false; } }
 function el(tag, cls, text) { const n = document.createElement(tag); n.className = cls || ''; if (text) n.textContent = text; return n; }
+function shQuote(text) { return "'" + String(text).replace(/'/g, "'\\''") + "'"; }
+const CARD_PLACEHOLDER = 'assets/backgrounds/thumbs/mountain-sunset.jpg';
+const JELLYFIN_STATUS = {unconfigured: 'Jellyfin da collegare', offline: 'Jellyfin non raggiungibile', unauthorized: 'Accesso Jellyfin scaduto: collega di nuovo', online: 'Collegato a Jellyfin'};
+// Artwork lives in IndexedDB now: data URLs left in localStorage by older versions go.
+function loadCache() {
+  const c = read(CACHE, {items: [], resume: [], at: 0});
+  let dirty = false;
+  [c.items = c.items || [], c.resume = c.resume || [], c.music = c.music || []].forEach(function (list) {
+    list.forEach(function (item) { ['image', 'backdrop'].forEach(function (k) { if (typeof item[k] === 'string' && item[k].indexOf('data:') === 0) { item[k] = ''; dirty = true; } }); });
+  });
+  if (dirty) write(CACHE, c);
+  return c;
+}
 
 export function createCinematic(host) {
   // Real TV icons are a small bundled fallback; runtime scans still find installed updates.
@@ -24,9 +38,10 @@ export function createCinematic(host) {
   Object.keys(nativeCatalog).forEach(function(id){if(!appMemory[id])appMemory[id]=nativeCatalog[id];});
   write('lounge.apps.v1',appMemory);
   const prefs = normalizeCinemaPrefs(Object.assign({},read(PREFS, {}),host.getConfig().cinema||{}));
-  let cached = read(CACHE, {items: [], resume: [], at: 0});
-  let items = [], hero = null, client = null, connection = null, busy = false;
+  let cached = loadCache();
+  let items = [], hero = null, client = null, connection = null, busy = false, jellyfinState = 'unconfigured';
   let currentTab = 'home', generation = 0, imageGeneration = 0, lastRefresh = 0;
+  let heroTimer = null, heroRequest = null, saveTimer = null, refreshTimer = null;
   const root = document.getElementById('app');
   const backdrop = el('div', 'cinema-backdrop');
   const backdropPainter=createBackdropPainter(backdrop);
@@ -93,21 +108,40 @@ export function createCinematic(host) {
   const liveBanner=el('div','cinema-live-banner');liveBanner.setAttribute('role','status');liveBanner.setAttribute('aria-live','polite');
   const bannerNumber=el('strong','cinema-live-banner-number'),bannerText=el('div','cinema-live-banner-text');
   const bannerName=el('span','cinema-live-banner-name'),bannerProgramme=el('span','cinema-live-banner-programme');
-  bannerText.appendChild(bannerName);bannerText.appendChild(bannerProgramme);liveBanner.appendChild(bannerNumber);liveBanner.appendChild(bannerText);root.appendChild(liveBanner);
+  const bannerProgress=el('div','cinema-live-banner-progress'),bannerProgressFill=el('i',''),bannerNext=el('span','cinema-live-banner-next');
+  bannerProgress.appendChild(bannerProgressFill);bannerProgress.hidden=true;
+  [bannerName,bannerProgramme,bannerProgress,bannerNext].forEach(function(n){bannerText.appendChild(n);});liveBanner.appendChild(bannerNumber);liveBanner.appendChild(bannerText);root.appendChild(liveBanner);
   let bannerTimer=null,bannerChannel=null;
-  function showBanner(state){
-    clearTimeout(bannerTimer);bannerChannel=state.channel||null;bannerProgramme.textContent='';
+  // Programme on `channel`: {name,start,end,next} from host.getProgrammeInfo (luna.liveProgrammeInfo), else the name only.
+  function programmeInfo(channel){
+    const plain=function(){return host.getProgramme?Promise.resolve(host.getProgramme(channel)).then(function(text){return {name:text||'',start:0,end:0,next:''};}):Promise.resolve(null);};
+    if(!host.getProgrammeInfo)return plain();
+    return Promise.resolve().then(function(){return host.getProgrammeInfo(channel);}).then(function(info){return info&&typeof info==='object'?info:plain();},plain);
+  }
+  function paintProgramme(info){
+    bannerProgramme.textContent=(info&&info.name)||'';
+    const now=Date.now()/1000,timed=info&&info.start>0&&info.end>info.start;
+    bannerProgress.hidden=!timed;
+    if(timed)bannerProgressFill.style.width=Math.max(0,Math.min(100,(now-info.start)/(info.end-info.start)*100)).toFixed(1)+'%';
+    bannerNext.textContent=info&&info.next?'A seguire: '+info.next:'';
+  }
+  function showBanner(state,duration){
+    clearTimeout(bannerTimer);bannerChannel=state.channel||null;paintProgramme(null);
     if(state.channel){
       bannerNumber.textContent=state.channel.number;bannerName.textContent=state.channel.name;
       if(liveDevice.id==='TV')liveName.textContent=state.channel.number+'  '+state.channel.name;
       const channel=state.channel;
-      if(host.getProgramme)Promise.resolve(host.getProgramme(channel)).then(function(text){if(bannerChannel===channel)bannerProgramme.textContent=text||'';},function(){});
+      programmeInfo(channel).then(function(info){if(bannerChannel===channel)paintProgramme(info);},function(){});
     }else if(state.failed){bannerNumber.textContent=state.failed.number;bannerName.textContent='Impossibile passare a '+state.failed.name;}
+    else if(state.empty){bannerNumber.textContent='';bannerName.textContent='Nessun canale sintonizzato';}
     else{bannerNumber.textContent=state.typed+(state.missing?'':'–');bannerName.textContent=state.missing?'Canale non disponibile':'';}
     liveBanner.classList.add('visible');
     // Digits being typed stay until the number is taken.
-    if(!state.typed||state.missing)bannerTimer=setTimeout(function(){liveBanner.classList.remove('visible');},4500);
+    if(!state.typed||state.missing)bannerTimer=setTimeout(function(){liveBanner.classList.remove('visible');},duration||4500);
   }
+  // Info (457) / Guide (458) on the remote bring the banner back for a while.
+  function infoKey(e){return e.keyCode===457||e.keyCode===458||e.key==='Info'||e.key==='Guide';}
+  function recallBanner(){const current=zapper&&zapper.current();if(liveDevice.id==='TV'&&current)showBanner({channel:current},6000);else if(liveDevice.id==='TV'&&zapper)showBanner({empty:true},6000);}
   function hideBanner(){clearTimeout(bannerTimer);bannerChannel=null;liveBanner.classList.remove('visible');}
   const zapper=host.getChannels?createZapper({
     channels:host.getChannels,currentId:host.getCurrentChannelId,tune:host.tuneChannel,banner:showBanner,
@@ -121,7 +155,7 @@ export function createCinematic(host) {
     return 0;
   }
   let appSnapshot=null, appSnapshotAt=0;
-  async function mediaSnapshot(){if(appSnapshot&&Date.now()-appSnapshotAt<30000)return appSnapshot;appSnapshot=await listApps();appSnapshotAt=Date.now();return appSnapshot;}
+  async function mediaSnapshot(){if(appSnapshot&&Date.now()-appSnapshotAt<30000)return appSnapshot;appSnapshot=await luna.listApps();appSnapshotAt=Date.now();return appSnapshot;}
   async function launchMediaApp(item,discover){
     const candidates=mediaCandidates(await mediaSnapshot(),prefs.client,discover);
     for(const candidate of candidates){
@@ -160,6 +194,7 @@ export function createCinematic(host) {
   document.addEventListener('keydown',function(e){
     if(!isLive()||overlayOpen())return;
     const code=e.keyCode;
+    if(infoKey(e)){e.preventDefault();e.stopImmediatePropagation();recallBanner();return;}
     if(zapper){
       const delta=channelKey(e),digit=digitFromKey(code,e.key);
       if(delta||digit>=0||((code===13||e.key==='Enter')&&zapper.typing())){
@@ -254,7 +289,7 @@ export function createCinematic(host) {
       title.classList.remove('long');
       meta.textContent = 'App, film e ingressi. Tutto a portata di telecomando.';
       description.textContent = 'Apri Jellyfin per la tua libreria, scegli un’app dal dock oppure passa alla TV e agli ingressi HDMI.';
-      play.textContent='▶  Apri Jellyfin'; backdropPainter.clear(); return;
+      play.textContent='▶  Apri Jellyfin'; clearBackdrop(); return;
     }
     kicker.textContent = item.progress > 0 ? 'RIPRENDI DA DOVE ERI' : 'DALLA TUA LIBRERIA';
     title.textContent=item.title; title.classList.toggle('long',item.title.length>28);
@@ -262,32 +297,42 @@ export function createCinematic(host) {
     meta.textContent = [item.artist, item.year, item.genres.join(' · '), item.type === 'Series' ? 'Serie TV' : item.type === 'MusicAlbum' ? 'Album' : item.minutes ? item.minutes+' min' : '', item.rating].filter(Boolean).join('   ·   ');
     description.textContent = item.overview || item.episode || 'Disponibile nella tua libreria Jellyfin.';
     play.textContent = item.isMusic ? '▶  Ascolta' : '▶  Apri titolo';
-    if (prefs.backdrops) {backdropPainter.cancel();if(item.backdrop||item.image)backdropPainter.set(item.backdrop||item.image);}
-    else backdropPainter.clear();
-    // Only load the focused hero image. At most one large decoded backdrop.
-    if (client && prefs.backdrops && !item.backdrop) client.image(item, 1280).then(function (src) {
-      if (mark !== imageGeneration || document.hidden) return;
-      item.backdrop=src; backdropPainter.set(src); saveCache();
-    }).catch(function () {});
+    if (prefs.backdrops) {backdropPainter.cancel();if(item.backdrop||item.image)paintBackdrop(item.backdrop||item.image);}
+    else clearBackdrop();
+    // Only load the focused hero image. At most one large decoded backdrop;
+    // the previous download is dropped, a cached image costs no request.
+    if (heroRequest && heroRequest.abort) heroRequest.abort(); heroRequest = null;
+    if (client && prefs.backdrops && !item.backdrop) {
+      heroRequest = client.image(item, 1920);
+      heroRequest.then(function (src) {
+        if (mark !== imageGeneration || document.hidden || !src) return;
+        item.backdrop=src; paintBackdrop(src);
+      }).catch(function () {});
+    }
   }
+  // Moving along the rail: the hero follows the card that stays focused.
+  function focusHero(item) { clearTimeout(heroTimer); heroTimer = setTimeout(function () { heroTimer = null; setHero(item); }, 250); }
+  // body.cinema-has-backdrop while library artwork covers the local background.
+  function paintBackdrop(src) { return backdropPainter.set(src).then(function (shown) { if (shown) document.body.classList.add('cinema-has-backdrop'); else if (hero && hero.backdrop === src && !document.body.classList.contains('cinema-has-backdrop')) hero.backdrop = ''; return shown; }); }
+  function clearBackdrop() { backdropPainter.clear(); document.body.classList.remove('cinema-has-backdrop'); }
   function mediaCard(item, i) {
     const b=button('', 'cinema-card', 300+i, function () { openMedia(item); }); b.dataset.itemId=item.id;
     b.setAttribute('aria-label', item.title + (item.episode ? ', '+item.episode : ''));
-    const img=el('img','cinema-card-image'); img.alt='';
-    img.src=item.image || 'assets/backgrounds/1920/mountain-sunset.jpg'; img.onerror=function(){img.onerror=null;img.src='assets/backgrounds/1920/mountain-sunset.jpg';};
+    const img=el('img','cinema-card-image'); img.alt=''; img.decoding='async';
+    img.src=item.image || CARD_PLACEHOLDER; img.onerror=function(){img.onerror=null;img.src=CARD_PLACEHOLDER;item.image='';};
     const shade=el('div','cinema-card-shade'); const text=el('div','cinema-card-text');
     text.appendChild(el('strong','',item.title));
     const detail = item.episode ? 'S'+(item.season||1)+' · E'+(item.episodeNumber||1)+' · '+item.episode : [item.year, item.genres[0]].filter(Boolean).join(' · ');
     text.appendChild(el('span','', item.progress>0 && item.remaining ? item.remaining+' min rimasti' : detail));
     if(item.progress>0) {const track=el('div','cinema-progress'); const fill=el('i','');fill.style.width=item.progress+'%';track.appendChild(fill);text.appendChild(track);}
     [img,shade,text].forEach(function(n){b.appendChild(n);});
-    b.addEventListener('focus',function(){setHero(item);if(client&&!item.image)client.image(item,480).then(function(src){item.image=src;img.src=src;saveCache();}).catch(function(){});}); return b;
+    b.addEventListener('focus',function(){focusHero(item);if(client&&!item.image)client.image(item,640).then(function(src){if(!src)return;item.image=src;img.src=src;}).catch(function(){});}); return b;
   }
   function showItems(next, label) {
     section.classList.remove('cinema-content-enter');
     requestAnimationFrame(function(){if(!document.hidden)section.classList.add('cinema-content-enter');});
     const oldFocus=document.activeElement; const wasInRail=rail.contains(oldFocus); const oldId=oldFocus&&oldFocus.dataset.itemId;
-    items=next.slice(0,12); rail.innerHTML=''; railTitle.textContent=label;
+    clearTimeout(heroTimer); heroTimer=null; items=next.slice(0,12); rail.innerHTML=''; railTitle.textContent=label;
     railInfo.textContent=items.length ? items.length+(items.length===1?' titolo':' titoli') : 'Sempre disponibili';
     if(!items.length) { shortcuts(); setHero(null); return; }
     items.forEach(function(item,i){rail.appendChild(mediaCard(item,i));}); setHero(items[0]);
@@ -296,27 +341,28 @@ export function createCinematic(host) {
   function shortcuts() {
     rail.innerHTML='';
     const entries=[['Jellyfin','La tua libreria personale','jellyfin',function(){openMedia(null);}],['YouTube AdFree','Video e canali preferiti','youtube',function(){host.openApp('youtube.leanback.v4');}],['TV e HDMI','Canali e dispositivi collegati','inputs',function(){selectTab('live');}],['Tutte le app','Tutte le app installate','apps',host.openApps]];
-    entries.forEach(function(a,i){const b=button('','cinema-card cinema-shortcut '+a[2],300+i,a[3]);const icon=el('img','cinema-shortcut-icon'); icon.alt=''; icon.src=['assets/native-icons/org.litefin.app.png','assets/native-icons/youtube.leanback.v4.png','assets/native-icons/com.webos.app.livetv.png','assets/native-icons/org.webosbrew.hbchannel.png'][i]; b.appendChild(icon);b.appendChild(el('strong','',a[0]));b.appendChild(el('span','',a[1]));rail.appendChild(b);});
+    entries.forEach(function(a,i){const b=button('','cinema-card cinema-shortcut '+a[2],300+i,a[3]);const icon=el('img','cinema-shortcut-icon'); icon.alt=''; icon.decoding='async'; icon.src=['assets/native-icons/org.litefin.app.png','assets/native-icons/youtube.leanback.v4.png','assets/native-icons/com.webos.app.livetv.png','assets/native-icons/org.webosbrew.hbchannel.png'][i]; b.appendChild(icon);b.appendChild(el('strong','',a[0]));b.appendChild(el('span','',a[1]));rail.appendChild(b);});
   }
-  function saveCache() {
-    // Store bounded media data, never a token. Only the active backdrop is retained.
-    const all=cached.items.concat(cached.resume).concat(cached.music||[]);
-    all.forEach(function(item){if(!hero||item.id!==hero.id)item.backdrop='';});
-    write(CACHE,cached);
+  // Metadata only (titles, ids, progress), never a token nor artwork: images
+  // sit in IndexedDB. Writes are coalesced; a card focus never triggers one.
+  function saveCache() { clearTimeout(saveTimer); saveTimer=setTimeout(flushCache,1000); }
+  function flushCache() {
+    clearTimeout(saveTimer); saveTimer=null;
+    const strip=function(list){return (list||[]).map(function(item){const copy=Object.assign({},item);delete copy.image;delete copy.backdrop;return copy;});};
+    write(CACHE,{items:strip(cached.items),resume:strip(cached.resume),music:strip(cached.music),at:cached.at,userId:cached.userId});
   }
   async function hydrate(list, mark) {
     // Two requests at a time; only six thumbnails, no full-library artwork fetch.
     for(let i=0;i<Math.min(list.length,6);i+=2) {
       if(mark!==generation||document.hidden)return;
       await Promise.all(list.slice(i,i+2).map(function(item){
-        return client.image(item,480).then(function(src){
-          if(mark!==generation)return; item.image=src;
+        return client.image(item,640).then(function(src){
+          if(mark!==generation||!src)return; item.image=src;
           const card=Array.from(rail.children).filter(function(n){return n.dataset.itemId===item.id;})[0];
           if(card)card.querySelector('img').src=src;
         }).catch(function(){});
       }));
     }
-    saveCache();
   }
   async function selectTab(kind) {
     if(kind==='discover'){openDiscover();return;}
@@ -333,51 +379,84 @@ export function createCinematic(host) {
     if(kind==='home'){showItems(cached.resume.length?cached.resume:cached.items,cached.resume.length?'Continua a guardare':'Aggiunti di recente');return;}
     if(!client){if(kind==='music'){showItems(cached.music||[],'La tua musica');return;}showItems(cached.items.filter(function(item){return kind==='movies'?item.type==='Movie':item.type==='Series';}),kind==='movies'?'I tuoi film':'Le tue serie');return;}
     setStatus('Caricamento…',true);
-    try {const next=await client.load(kind);if(mark!==generation)return;if(kind==='music'){cached.music=next;saveCache();}showItems(next,kind==='movies'?'I tuoi film':kind==='music'?'La tua musica':'Le tue serie');setStatus(connection.userName||'Jellyfin',true);hydrate(next,mark);}
-    catch(_){setStatus('Jellyfin offline',false);if(kind==='music'){showItems(cached.music||[],'La tua musica');return;}showItems(cached.items.filter(function(item){return kind==='movies'?item.type==='Movie':item.type==='Series';}),kind==='movies'?'I tuoi film':'Le tue serie');}
+    try {const next=await client.load(kind);if(mark!==generation)return;if(kind==='music'){cached.music=next;saveCache();}showItems(next,kind==='movies'?'I tuoi film':kind==='music'?'La tua musica':'Le tue serie');setJellyfinState('online');hydrate(next,mark);}
+    catch(err){failed(err);if(kind==='music'){showItems(cached.music||[],'La tua musica');return;}showItems(cached.items.filter(function(item){return kind==='movies'?item.type==='Movie':item.type==='Series';}),kind==='movies'?'I tuoi film':'Le tue serie');}
   }
   async function runSearch() {
     const query=searchInput.value.trim(); if(!query)return;
     if(!client){host.showToast('Jellyfin non disponibile. Le app restano accessibili.');return;}
     const mark=++generation;search.hidden=true;setStatus('Ricerca…',true);
     try {const found=await client.load('all',query);if(mark!==generation)return;showItems(found,'Risultati per “'+query+'”');setStatus(found.length?'Jellyfin':'Nessun titolo trovato',true);if(rail.children[0])host.focus.focusElement(rail.children[0]);hydrate(found,mark);}
-    catch(_){setStatus('Jellyfin non raggiungibile',false);host.showToast('Ricerca non disponibile. Riprova più tardi.');host.focus.focusElement(nav.children[0]);}
+    catch(err){failed(err);host.showToast('Ricerca non disponibile. Riprova più tardi.');host.focus.focusElement(nav.children[0]);}
   }
   function openMedia(item) {
     launchMediaApp(item,false).catch(function(){discoverPanel.show(discoverAvailability({installed:false}));});
   }
   async function loadConnection() {
     if (!window.PalmSystem && /^(127\.0\.0\.1|localhost)$/.test(location.hostname)) return request('/preview/connection', '', false);
-    const raw=await execRoot('cat '+PRIVATE_CONNECTION,5000);
+    const raw=await luna.execRoot('cat '+PRIVATE_CONNECTION,5000);
     const text=raw.stdoutString||(raw.stdoutBytes?atob(raw.stdoutBytes):'');
     const c=JSON.parse(text);if(!validConnection(c))throw new Error('Jellyfin non configurato');return c;
+  }
+  // The private file, root only (0600): luna.writeFileAsRoot when it exists, else one shell command.
+  async function saveConnection(c) {
+    const text=JSON.stringify({server:c.server,userId:c.userId,token:c.token,userName:c.userName||''});
+    let writer=null; try { writer=typeof luna.writeFileAsRoot==='function'?luna.writeFileAsRoot:null; } catch (_) { writer=null; }
+    if(writer)await writer(PRIVATE_CONNECTION,text,'600');
+    else await luna.execRoot('mkdir -p '+shQuote(PRIVATE_CONNECTION.replace(/\/[^/]*$/,''))+' && printf %s '+shQuote(text)+' > '+shQuote(PRIVATE_CONNECTION)+' && chmod 600 '+shQuote(PRIVATE_CONNECTION),10000);
+  }
+  // Quick Connect from Settings: the code goes to `onCode`; on success the
+  // connection is stored on the TV (in memory only on the desktop preview).
+  async function connectQuick(server,onCode) {
+    const c=await quickConnect(server,{version:APP_VERSION,onCode:onCode});
+    if(window.PalmSystem)await saveConnection(c);
+    generation++;client=null;connection=c;client=createJellyfinClient(c);
+    if(cached.userId&&cached.userId!==c.userId){cached={items:[],resume:[],music:[],at:0};showItems([],'Le tue scorciatoie');}
+    setJellyfinState('online');lastRefresh=0;await refresh(true);
+    return {userName:c.userName,server:c.server};
+  }
+  function setJellyfinState(state){
+    jellyfinState=state;
+    setStatus(state==='online'?(connection&&connection.userName)||'Jellyfin':state==='offline'&&cached.at?'Jellyfin offline':JELLYFIN_STATUS[state],state==='online');
+  }
+  // A failed Jellyfin call: an expired token drops the client, so the next
+  // refresh reads the private connection file again.
+  function failed(err){
+    const message=String((err&&err.message)||'');
+    if(/^Jellyfin: 40[13]$/.test(message)){client=null;connection=null;setJellyfinState('unauthorized');}
+    else if(!connection)setJellyfinState('unconfigured');
+    else setJellyfinState('offline');
   }
   async function refresh(force) {
     if(busy||document.hidden||!prefs.enabled||!prefs.jellyfin||(!force&&Date.now()-lastRefresh<60000))return;
     busy=true;lastRefresh=Date.now();const mark=++generation;
     try {
-      if(!client){connection=await loadConnection();client=createJellyfinClient(connection);if(cached.userId&&cached.userId!==connection.userId){cached={items:[],resume:[],at:0};showItems([],'Le tue scorciatoie');}}
-      const results=await Promise.all([client.load('resume').catch(function(){return null;}),client.load('all')]);
+      if(!client){connection=await loadConnection();client=createJellyfinClient(connection);if(cached.userId&&cached.userId!==connection.userId){cached={items:[],resume:[],music:[],at:0};showItems([],'Le tue scorciatoie');}}
+      const results=await Promise.all([client.load('resume').catch(function(){return null;}),client.load('all'),client.load('nextup').catch(function(){return null;})]);
       if(mark!==generation)return;
       const previous=cached.items.concat(cached.resume).concat(cached.music||[]);
-      [results[1],results[0]||[]].forEach(function(list){list.forEach(function(item){const old=previous.find(function(n){return n.id===item.id;});if(old){item.image=item.image||old.image;item.backdrop=item.backdrop||old.backdrop;}});});
-      cached={items:results[1],resume:results[0]||cached.resume,music:cached.music||[],at:Date.now(),userId:connection.userId};
-      setStatus(connection.userName||'Jellyfin',true);
+      const resume=(results[0]||results[2])?mergeContinue(results[0]||[],results[2]||[]):cached.resume;
+      [results[1],resume].forEach(function(list){list.forEach(function(item){const old=previous.find(function(n){return n.id===item.id;});if(old){item.image=item.image||old.image;item.backdrop=item.backdrop||old.backdrop;}});});
+      cached={items:results[1],resume:resume,music:cached.music||[],at:Date.now(),userId:connection.userId};
+      setJellyfinState('online');
       if(currentTab==='home'){const list=cached.resume.length?cached.resume:cached.items;showItems(list,cached.resume.length?'Continua a guardare':'Aggiunti di recente');hydrate(list,mark);}
       saveCache();
-    }catch(_){setStatus(cached.at?'Jellyfin offline':'Jellyfin offline',false);}
+    }catch(err){failed(err);}
     finally{busy=false;}
   }
+  // Every ten minutes while the page is visible, besides the refresh on return.
+  function armRefresh(){clearInterval(refreshTimer);refreshTimer=setInterval(function(){if(!document.hidden)refresh(false);},600000);}
   function mountSettings(panel) {
     mountCinemaSettings(panel,{
       prefs:prefs, refresh:refresh,
-      getInfo:function(){return {online:status.classList.contains('online'),userName:connection&&connection.userName,server:connection&&connection.server.replace(/^https?:\/\//,''),cached:!!cached.at};},
+      getInfo:function(){return {state:jellyfinState,online:jellyfinState==='online',userName:connection&&connection.userName,server:connection&&connection.server.replace(/^https?:\/\//,''),serverUrl:connection&&connection.server,cached:!!cached.at};},
+      quickConnect:connectQuick,
       openLitefin:function(){openMedia(null);},
       openDiscover:function(){selectTab('discover');},
       checkSeerr:async function(){if(!connection)connection=await loadConnection();return request(connection.server.replace(/\/+$/,'')+'/Litefin/Seerr/Status',connection.token,false);},
       homeStatus:async function(){
         if(!window.PalmSystem)throw new Error('Solo sulla TV');
-        const out=await execRoot('python -c \'import json; c=json.load(open("/home/root/.config/lginputhook/keybinds.json")); print(json.dumps({"home":c.get("773",{}).get("id")=="org.webosbrew.lounge.launcher"}))\'',5000);
+        const out=await luna.execRoot('PY=$(command -v python3 || command -v python); "$PY" -c \'import json; c=json.load(open("/home/root/.config/lginputhook/keybinds.json")); print(json.dumps({"home":c.get("773",{}).get("id")=="org.webosbrew.lounge.launcher"}))\'',5000);
         return JSON.parse(out.stdoutString||(out.stdoutBytes?atob(out.stdoutBytes):''));
       },
       openInputHook:function(){suspendLive();host.beforeLaunch();host.openApp('org.webosbrew.inputhook').catch(function(){host.showToast('LG Input Hook non disponibile.');});}
@@ -399,13 +478,20 @@ export function createCinematic(host) {
   }
   // Yellow is unused upstream; all existing colour-key actions remain intact.
   document.addEventListener('keydown',function(e){if((e.keyCode===405||e.key==='y')&&!document.body.classList.contains('settings-open')&&document.activeElement.tagName!=='INPUT'){e.preventDefault();setEnabled(!prefs.enabled);}});
-  document.addEventListener('visibilitychange',function(){if(document.hidden)suspendLive();else{resumeLive();refresh(false);}});
+  document.addEventListener('visibilitychange',function(){if(document.hidden){suspendLive();clearInterval(refreshTimer);}else{resumeLive();refresh(false);armRefresh();}});
+  window.addEventListener('pagehide',function(){if(saveTimer)flushCache();});
+  // "Giovedì 30 ottobre": only the first letter capitalised, whoever writes the date.
+  const clockDate=document.getElementById('clock-date');
+  if(clockDate&&typeof MutationObserver==='function'){
+    let fixing=false;
+    new MutationObserver(function(){if(fixing)return;const text=clockDate.textContent,fixed=sentenceCase(text);if(fixed!==text){fixing=true;clockDate.textContent=fixed;fixing=false;}}).observe(clockDate,{childList:true,characterData:true,subtree:true});
+  }
   window.addEventListener('pagehide',suspendLive);
   document.addEventListener('webOSRelaunch',function(){if(isLive())revealLive();refresh(false);});
   window.addEventListener('resize',fit);
   document.body.classList.toggle('cinematic',prefs.enabled);paintPreferences();fit();
   showItems(prefs.jellyfin?(cached.resume.length?cached.resume:cached.items):[],cached.resume.length?'Continua a guardare':cached.items.length?'Aggiunti di recente':'Le tue scorciatoie');
-  if(cached.at)setStatus('Jellyfin offline',false);
-  setTimeout(function(){refresh(true);},300);
+  if(cached.at)setJellyfinState('offline');
+  setTimeout(function(){refresh(true);},300);if(!document.hidden)armRefresh();
   return {tuneChannel:function(channel){if(!zapper||!isLive())return false;if(liveDevice.id!=='TV')selectLive(tvDevice(),false);zapper.go(channel);return true;},refresh:refresh,mountSettings:mountSettings,applySettings:applySettings,syncConfig:syncConfig,setEnabled:setEnabled,isLive:isLive,suspendLive:suspendLive,refreshInputs:function(){if(isLive())renderLiveSources();},back:function(){if(discoverPanel.isOpen()){discoverPanel.close();return true;}if(!isLive())return false;selectTab('home');host.focus.focusElement(nav.querySelector('[data-cinema-tab=live]'));return true;}};
 }
