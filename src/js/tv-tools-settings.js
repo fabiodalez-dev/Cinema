@@ -114,8 +114,9 @@ export function tvToolsDraft(status, controls) {
   });
   let powerOffAt = conf.powerOffAt || null;
   if (controls.powerOffAt) powerOffAt = controls.powerOffAt.value || null;
+  const cinemaFirst = controls.cinemaFirst ? !!controls.cinemaFirst.checked : conf.cinemaFirst === true;
   return {preloadOff: preloadOff, settingsOff: settingsOff, servicesOff: servicesOff, keepInMemory: keepInMemory,
-    remoteKeys: remoteKeys, powerOffAt: powerOffAt};
+    remoteKeys: remoteKeys, powerOffAt: powerOffAt, cinemaFirst: cinemaFirst};
 }
 
 /** Every half hour of the day, as HH:MM. */
@@ -133,7 +134,7 @@ function normalized(conf) {
   Object.keys(conf.remoteKeys || {}).sort().forEach(function (k) { keys[k] = conf.remoteKeys[k]; });
   return {preloadOff: sorted(conf.preloadOff), settingsOff: sorted(conf.settingsOff),
     servicesOff: sorted(conf.servicesOff), keepInMemory: sorted(conf.keepInMemory), remoteKeys: keys,
-    powerOffAt: conf.powerOffAt || null};
+    powerOffAt: conf.powerOffAt || null, cinemaFirst: conf.cinemaFirst === true};
 }
 
 /** The apps to list: installed, not essential, and loaded by LG (or switched off here). */
@@ -289,7 +290,7 @@ export function mountTvToolsSettings(panel, api) {
       return;
     }
     const conf = status.conf || {};
-    const controls = {preload: {}, settings: {}, services: {}, memory: null, keys: {}, consent: {}, powerOffAt: null};
+    const controls = {preload: {}, settings: {}, services: {}, memory: null, keys: {}, consent: {}, powerOffAt: null, cinemaFirst: null};
 
     if (status.memorySupported) {
       const mem = section('Memoria', 'Con poca memoria webOS chiude le app aperte quando ne apri un’altra. Così Cinema riparte da zero a ogni tasto Home e la musica di Bloomee si ferma.');
@@ -314,6 +315,9 @@ export function mountTvToolsSettings(panel, api) {
     offRow.appendChild(offSelect);
     off.appendChild(offRow);
     controls.powerOffAt = offSelect;
+
+    const first = section('Accensione', 'All’accensione la TV apre Cinema invece di Live TV: nel primo minuto lo schermo resta nero, poi compare Cinema, circa 40 secondi prima di adesso, e LG non rimette la TV sopra Cinema alla fine dell’avvio. Per partire Cinema usa un ingresso HDMI libero; canali e ingressi si aprono come sempre da Cinema.');
+    controls.cinemaFirst = toggle(first, 'Apri Cinema all’accensione', conf.cinemaFirst === true, '');
 
     const rows = preloadRows(status);
     if (rows.length) {
@@ -435,7 +439,7 @@ export function mountTvToolsSettings(panel, api) {
       reset.disabled = true;
       state.textContent = 'Ripristino in corso…';
       try {
-        await api.apply({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: [], remoteKeys: {}, powerOffAt: null});
+        await api.apply({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: [], remoteKeys: {}, powerOffAt: null, cinemaFirst: false});
         state.textContent = 'Tutto riportato alle impostazioni di LG.';
         refresh();
       } catch (err) {

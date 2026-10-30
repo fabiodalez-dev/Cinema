@@ -41,7 +41,7 @@ class Conf(unittest.TestCase):
             self.assertEqual(c['preloadOff'], ['amazon'])
             self.assertEqual(c['keepInMemory'], ['org.bloomee.webos'])
             os.remove(tv.CONF)
-            self.assertEqual(tv.load_conf(), {'preloadOff': [], 'settingsOff': [], 'servicesOff': [], 'keepInMemory': [], 'remoteKeys': {}, 'powerOffAt': None})
+            self.assertEqual(tv.load_conf(), {'preloadOff': [], 'settingsOff': [], 'servicesOff': [], 'keepInMemory': [], 'remoteKeys': {}, 'powerOffAt': None, 'cinemaFirst': False})
         finally:
             tv.CONF = old
 
@@ -261,3 +261,39 @@ class RunDir(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PowerOnInput(unittest.TestCase):
+    def test_first_free_hdmi_is_the_boot_input(self):
+        devices = [{'id': 'HDMI_1', 'connected': True, 'appId': 'com.webos.app.hdmi1'},
+                   {'id': 'HDMI_3', 'connected': False, 'appId': 'com.webos.app.hdmi3'},
+                   {'id': 'HDMI_4', 'connected': False, 'appId': 'com.webos.app.hdmi4'}]
+        self.assertEqual(tv.boot_input(devices), ('HDMI_3', 'com.webos.app.hdmi3'))
+
+    def test_live_tv_when_every_hdmi_is_used_or_unknown(self):
+        self.assertEqual(tv.boot_input([{'id': 'HDMI_1', 'connected': True, 'appId': 'com.webos.app.hdmi1'}]),
+                         ('DTV', 'com.webos.app.livetv'))
+        self.assertEqual(tv.boot_input(None), ('DTV', 'com.webos.app.livetv'))
+
+    def test_pinned_file_names_cinema_on_that_input(self):
+        self.assertEqual(tv.pinned_lastinput('HDMI_3', 'com.webos.app.hdmi3'),
+                         {'type': 'HDMI_3', 'appId': 'com.webos.app.hdmi3', 'physicalLastSourceId': 'HDMI_3',
+                          'physicalLastSourceAppId': 'org.webosbrew.lounge.launcher'})
+
+    def test_switching_off_puts_lgs_file_back(self):
+        d = tempfile.mkdtemp()
+        old = (tv.LASTINPUT, tv.PINNED, tv.LG_LASTINPUT, tv.lastinput_pinned)
+        tv.LASTINPUT = os.path.join(d, 'lastinput'); tv.PINNED = os.path.join(d, 'pinned'); tv.LG_LASTINPUT = os.path.join(d, 'lg')
+        tv.lastinput_pinned = lambda: False
+        try:
+            lg = {'type': 'DTV', 'appId': 'com.webos.app.livetv', 'physicalLastSourceId': 'DTV',
+                  'physicalLastSourceAppId': 'com.webos.app.livetv'}
+            json.dump(lg, open(tv.LG_LASTINPUT, 'w'))
+            json.dump(tv.pinned_lastinput('HDMI_3', 'com.webos.app.hdmi3'), open(tv.PINNED, 'w'))
+            json.dump(tv.pinned_lastinput('HDMI_3', 'com.webos.app.hdmi3'), open(tv.LASTINPUT, 'w'))
+            tv.apply_first_app({'cinemaFirst': False})
+            self.assertEqual(json.load(open(tv.LASTINPUT)), lg)
+            self.assertFalse(os.path.exists(tv.PINNED))
+            self.assertFalse(os.path.exists(tv.LG_LASTINPUT))
+        finally:
+            tv.LASTINPUT, tv.PINNED, tv.LG_LASTINPUT, tv.lastinput_pinned = old
