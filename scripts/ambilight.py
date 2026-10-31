@@ -145,9 +145,10 @@ def screen_color(w, h, rows, step=STEP):
 
     Black (letterbox bars, dark scenes) is left out. The pixels are grouped by
     hue, each counted by how coloured and how bright it is, and the strongest
-    group wins: a red car in a grey street gives red, not the muddy average.
-    A scene with little colour gives its own average (white-ish, warm or
-    cold). A screen almost all black gives a dim version of what is there."""
+    group is mixed into the average as much as the screen is colourful: a red
+    car in a grey street tints the light red, a red sunset makes it red. A
+    scene with little colour gives its own average (white-ish, warm or cold).
+    A screen almost all black gives a dim version of what is there."""
     bins = {}
     total = [0, 0, 0, 0]
     lit = 0
@@ -191,25 +192,30 @@ def screen_color(w, h, rows, step=STEP):
         colorful = sum(a[3] for a in bins.values()) / (255.0 * total[3])
         if colorful > 0.05:
             col = (best[0] / best[3], best[1] / best[3], best[2] / best[3])
-            # Keep the hue of the winner at the brightness of the scene.
+            # The hue of the winner at the brightness of the scene, mixed with
+            # the scene itself: only a really colourful screen gets its pure
+            # colour, a face on a beige wall stays a soft warm light.
             bright = max(avg) / float(max(col) or 1)
             col = tuple(c * max(bright, 0.6) for c in col)
-            return tuple(c * level for c in col)
+            m = min(0.7, colorful * 1.5)
+            mixed = tuple(a + (c - a) * m for a, c in zip(avg, col))
+            return tuple(c * level for c in mixed)
     return tuple(c * level for c in avg)
 
 
-def boost(rgb, saturation=1.15, gamma=1.6):
-    """Screens look less saturated on a wall, and LEDs are brightest at the
-    bottom of their range: colour pushed out from grey, then a gamma curve so
-    that a dim scene gives a dim light and not half brightness."""
-    r, g, b = rgb
+def boost(rgb, saturation=0.8, gamma=1.6):
+    """From the screen to the LEDs. A strip shows pure, saturated light, so
+    the colour is moved a little towards white; and LEDs are brightest at
+    the bottom of their range, so a gamma curve on the brightness alone (the
+    proportions stay) gives a dim light for a dim scene."""
+    r, g, b = (max(0.0, min(255.0, float(c))) for c in rgb)
+    mx = max(r, g, b)
+    if mx <= 0:
+        return (0.0, 0.0, 0.0)
     grey = (r + g + b) / 3.0
-    out = []
-    for c in (r, g, b):
-        c = grey + (c - grey) * saturation
-        c = max(0.0, min(255.0, c)) / 255.0
-        out.append(255.0 * (c ** gamma))
-    return tuple(out)
+    col = [max(0.0, grey + (c - grey) * saturation) for c in (r, g, b)]
+    scale = mx * (mx / 255.0) ** (gamma - 1) / (max(col) or 1)
+    return tuple(min(255.0, c * scale) for c in col)
 
 
 class Smoother(object):

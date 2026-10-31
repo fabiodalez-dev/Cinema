@@ -60,11 +60,12 @@ class Screen(unittest.TestCase):
         self.assertGreater(b, 150)
         self.assertLess(r, 60)
 
-    def test_a_strong_colour_wins_over_a_grey_background(self):
+    def test_a_strong_colour_tints_a_grey_background(self):
         def px(x, y):
             return (220, 20, 20) if 100 <= x < 160 and 40 <= y < 100 else (120, 120, 120)
         r, g, b = amb.screen_color(*amb.bmp_pixels(bmp(240, 136, px)))
-        self.assertGreater(r, g * 3)
+        self.assertGreater(r, g * 1.2)                    # red, but not pure red
+        self.assertGreater(g, 40)
 
     def test_a_grey_scene_gives_its_average_and_black_gives_off(self):
         grey = amb.screen_color(*amb.bmp_pixels(bmp(240, 136, lambda x, y: (150, 150, 140))))
@@ -76,6 +77,22 @@ class Screen(unittest.TestCase):
             return (255, 255, 255) if x < 12 else (0, 0, 0)
         r, g, b = amb.screen_color(*amb.bmp_pixels(bmp(240, 136, px)))
         self.assertLess(max(r, g, b), 40)
+
+    def test_skin_on_a_beige_wall_is_a_soft_warm_light(self):
+        def px(x, y):
+            if 80 <= x < 160 and 20 <= y < 120:
+                return (225, 170, 140)                    # a light-skinned face
+            return (190, 180, 150) if y > 15 else (30, 30, 30)
+        r, g, b = amb.boost(amb.screen_color(*amb.bmp_pixels(bmp(240, 136, px))))
+        self.assertGreater(r, b)                          # warm
+        self.assertGreater(g, r * 0.6)                    # not red
+        self.assertGreater(b, r * 0.4)
+
+    def test_boost_softens_a_pure_colour_and_keeps_its_hue(self):
+        r, g, b = amb.boost((255, 0, 0))
+        self.assertEqual(round(r), 255)
+        self.assertGreater(g, 10)
+        self.assertAlmostEqual(g, b)
 
     def test_boost_keeps_black_and_white(self):
         self.assertEqual(amb.boost((0, 0, 0)), (0.0, 0.0, 0.0))
