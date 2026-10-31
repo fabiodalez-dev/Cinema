@@ -316,8 +316,14 @@ export function mountTvToolsSettings(panel, api) {
     off.appendChild(offRow);
     controls.powerOffAt = offSelect;
 
-    const first = section('Accensione', 'All’accensione Cinema parte appena la TV lo permette, molto prima di adesso, e LG non rimette la TV sopra Cinema alla fine dell’avvio. Nei primi secondi si vede la TV, come sempre; canali e ingressi si aprono come prima.');
+    const first = section('Accensione', 'All’accensione la TV apre Cinema da sola, come prima app, invece della TV o dell’ultimo ingresso: dopo il logo di LG compare Cinema. Canali e ingressi si aprono come prima.');
     controls.cinemaFirst = toggle(first, 'Apri Cinema all’accensione', conf.cinemaFirst === true, '');
+
+    let blockUpdates = null;
+    if (typeof status.blockUpdates === 'boolean' && api.blockUpdates) {
+      const upd = section('Aggiornamenti di LG', 'Un aggiornamento del software di LG può togliere il root, e con lui gli strumenti di Cinema. Homebrew Channel può bloccarli. Restano bloccati anche gli aggiornamenti di sicurezza. Vale dal prossimo riavvio della TV.');
+      blockUpdates = toggle(upd, 'Blocca gli aggiornamenti del software LG', status.blockUpdates, '');
+    }
 
     const rows = preloadRows(status);
     if (rows.length) {
@@ -396,6 +402,18 @@ export function mountTvToolsSettings(panel, api) {
     const state = node('p', 'settings-hint', status.daemon ? 'Attivo.' : 'Non attivo.');
     // Saved with the panel's own Salva, like every other setting.
     panel.__tvToolsSave = async function () {
+      let changedUpdates = false;
+      if (blockUpdates && blockUpdates.checked !== status.blockUpdates) {
+        try {
+          await api.blockUpdates(blockUpdates.checked);
+          status.blockUpdates = blockUpdates.checked;
+          changedUpdates = true;
+          state.textContent = blockUpdates.checked ? 'Aggiornamenti di LG bloccati dal prossimo riavvio.' : 'Aggiornamenti di LG di nuovo permessi dal prossimo riavvio.';
+        } catch (err) {
+          state.textContent = 'Blocco degli aggiornamenti non cambiato.';
+          throw err;
+        }
+      }
       const next = tvToolsDraft(status, controls);
       const consentChanges = (status.consent || []).filter(function (c) {
         return controls.consent[c.key] && controls.consent[c.key].checked !== c.on;
@@ -423,7 +441,7 @@ export function mountTvToolsSettings(panel, api) {
           return true;
         }
       }
-      if (JSON.stringify(normalized(next)) === JSON.stringify(normalized(conf))) return null;
+      if (JSON.stringify(normalized(next)) === JSON.stringify(normalized(conf))) return changedUpdates ? true : null;
       state.textContent = 'Applicazione in corso…';
       try {
         const on = await api.apply(next);

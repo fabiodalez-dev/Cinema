@@ -393,8 +393,12 @@ body.all-apps-open #background-layer.gradient-animated {
   right: 64px;
   display: flex;
   align-items: center;
-  gap: 16px;
   z-index: 2;
+}
+
+/* Chromium 68 ignores flex gap: the spacing is a margin on every child but the first. */
+.top-actions > :not(:first-child) {
+  margin-left: 16px;
 }
 
 /* Voice listening badge — mic + AI face, top-right while an assistant listens. */
@@ -402,7 +406,6 @@ body.all-apps-open #background-layer.gradient-animated {
   position: relative;
   display: none;
   align-items: center;
-  gap: 10px;
   padding: 10px 16px 10px 12px;
   border-radius: 999px;
   background: linear-gradient(135deg, rgba(12, 28, 48, 0.82), rgba(36, 18, 56, 0.78));
@@ -418,6 +421,11 @@ body.all-apps-open #background-layer.gradient-animated {
   transition: opacity 0.12s ease, transform 0.12s ease;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+}
+
+/* Chromium 68 ignores flex gap: the spacing is a margin on every child but the first. */
+.voice-indicator > :not(:first-child) {
+  margin-left: 10px;
 }
 
 .voice-indicator.visible {
@@ -503,10 +511,14 @@ body.all-apps-open #background-layer.gradient-animated {
   margin: 8px 0 0;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
   font-size: 18px;
   font-weight: 500;
   letter-spacing: 0.02em;
+}
+
+/* Chromium 68 ignores flex gap: the dot keeps the spacing before the text. */
+.settings-run-user::before {
+  margin-right: 8px;
 }
 
 .settings-run-user::before {
@@ -1083,12 +1095,16 @@ body.perf-mode .app-scroll-badge {
    No frosted glass here: a long strip of blurred chips is costly to redraw. */
 .channel-strip {
   display: flex;
-  gap: 14px;
   margin: 0 -8px 10px;
   padding: 10px 8px 12px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
+}
+
+/* Chromium 68 ignores flex gap: the spacing is a margin on every child but the first. */
+.channel-strip > :not(:first-child) {
+  margin-left: 14px;
 }
 
 .channel-strip::-webkit-scrollbar {
@@ -1130,7 +1146,6 @@ body.perf-mode .app-scroll-badge {
   flex: 0 0 auto;
   display: flex;
   align-items: baseline;
-  gap: 10px;
   max-width: 460px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(20, 22, 30, 0.72);
@@ -1141,6 +1156,11 @@ body.perf-mode .app-scroll-badge {
   border-radius: 999px;
   cursor: pointer;
   white-space: nowrap;
+}
+
+/* Chromium 68 ignores flex gap: the spacing is a margin on every child but the first. */
+.channel-chip > :not(:first-child) {
+  margin-left: 10px;
 }
 
 .channel-chip .channel-number {
@@ -1573,11 +1593,15 @@ body.settings-open .settings-panel * {
   flex: 0 0 400px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
   padding: 20px 20px 24px 40px;
   border-right: 1px solid rgba(255, 255, 255, 0.1);
   overflow-y: auto;
   scrollbar-width: none;
+}
+
+/* Chromium 68 ignores flex gap: the spacing is a margin on every child but the first. */
+.settings-nav > :not(:first-child) {
+  margin-top: 6px;
 }
 
 .settings-nav::-webkit-scrollbar {
@@ -1589,7 +1613,6 @@ body.settings-open .settings-panel * {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
   padding: 12px 20px 12px 26px;
   border: 2px solid transparent;
   border-radius: 14px;
@@ -1601,6 +1624,11 @@ body.settings-open .settings-panel * {
   transition: none;
   box-shadow: none;
   outline: none;
+}
+
+/* Chromium 68 ignores flex gap: the spacing is a margin on every child but the first. */
+.settings-tab > :not(:first-child) {
+  margin-top: 4px;
 }
 
 .settings-tab-label {
@@ -1691,9 +1719,14 @@ body.settings-open .settings-panel * {
 
 .ai-provider-pick {
   display: flex;
-  gap: 14px;
-  margin: 4px 0 12px;
+  margin: 4px -14px -2px 0;
   flex-wrap: wrap;
+}
+
+/* Chromium 68 ignores flex gap: every child keeps the spacing on its right and below. */
+.ai-provider-pick > :nth-child(n) {
+  margin-right: 14px;
+  margin-bottom: 14px;
 }
 
 .ai-provider-card {
@@ -1702,7 +1735,6 @@ body.settings-open .settings-panel * {
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: 8px;
   min-width: 240px;
   min-height: 108px;
   padding: 18px 20px;
@@ -1713,6 +1745,11 @@ body.settings-open .settings-panel * {
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+/* Chromium 68 ignores flex gap: the spacing is a margin on every child but the first. */
+.ai-provider-card > :not(:first-child) {
+  margin-top: 8px;
 }
 
 .ai-provider-card-name {
@@ -1771,10 +1808,14 @@ body.settings-open .settings-panel .ai-provider-card.focused {
 .settings-key-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
   max-width: 62%;
   flex: 1;
   justify-content: flex-end;
+}
+
+/* Chromium 68 ignores flex gap: the spacing is a margin on every child but the first. */
+.settings-key-controls > :not(:first-child) {
+  margin-left: 10px;
 }
 
 .settings-key-controls .settings-text {
@@ -1847,7 +1888,6 @@ body.settings-open .settings-panel .ai-provider-card.focused {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
   max-width: 92%;
   padding: 32px 40px 28px;
   background: #1c1c28;
@@ -1855,6 +1895,11 @@ body.settings-open .settings-panel .ai-provider-card.focused {
   border-radius: 24px;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
   pointer-events: auto;
+}
+
+/* Chromium 68 ignores flex gap: the spacing is a margin on every child but the first. */
+.ai-oauth-modal-card > :not(:first-child) {
+  margin-top: 14px;
 }
 
 .ai-oauth-modal-title {
@@ -1902,17 +1947,28 @@ body.settings-open .settings-panel .ai-provider-card.focused {
 .settings-backup-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  margin-right: -16px;
+  margin-bottom: -16px;
+}
+
+/* Chromium 68 ignores flex gap: every child keeps the spacing on its right and below. */
+.settings-backup-actions > :nth-child(n) {
+  margin-right: 16px;
+  margin-bottom: 16px;
 }
 
 .tv-check-result {
   display: flex;
   align-items: flex-start;
-  gap: 28px;
   margin-top: 16px;
   padding: 16px;
   border-radius: 14px;
   background: #1c1c28;
+}
+
+/* Chromium 68 ignores flex gap: the spacing is a margin on every child but the first. */
+.tv-check-result > :not(:first-child) {
+  margin-left: 28px;
 }
 
 .tv-check-result[hidden] {
@@ -1941,8 +1997,12 @@ body.settings-open .settings-panel .ai-provider-card.focused {
 .ai-oauth-pending {
   display: flex;
   align-items: center;
-  gap: 28px;
   margin: 10px 0 14px;
+}
+
+/* Chromium 68 ignores flex gap: the spacing is a margin on every child but the first. */
+.ai-oauth-pending > :not(:first-child) {
+  margin-left: 28px;
 }
 
 .ai-oauth-pending-text {
@@ -1962,8 +2022,13 @@ body.settings-open .settings-panel .ai-provider-card.focused {
 .ai-oauth-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin: 10px 0 6px;
+  margin: 10px -10px -4px 0;
+}
+
+/* Chromium 68 ignores flex gap: every child keeps the spacing on its right and below. */
+.ai-oauth-row > :nth-child(n) {
+  margin-right: 10px;
+  margin-bottom: 10px;
 }
 
 .ai-using-badge {
@@ -2215,7 +2280,6 @@ body.settings-open .settings-panel .ai-provider-card.focused {
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
   min-width: 320px;
   max-width: 440px;
   padding: 8px 14px;
@@ -2236,6 +2300,11 @@ body.settings-open .settings-panel .ai-provider-card.focused {
   font-size: 20px;
   cursor: pointer;
   user-select: none;
+}
+
+/* Chromium 68 ignores flex gap: the spacing is a margin on every child but the first. */
+.option-stepper > :not(:first-child) {
+  margin-left: 14px;
 }
 
 .option-stepper .stepper-arrow {
@@ -2394,8 +2463,13 @@ body.settings-open .settings-panel .ai-provider-card.focused {
 .photo-picker-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
-  margin-top: 10px;
+  margin: 10px -14px -14px 0;
+}
+
+/* Chromium 68 ignores flex gap: every child keeps the spacing on its right and below. */
+.photo-picker-grid > :nth-child(n) {
+  margin-right: 14px;
+  margin-bottom: 14px;
 }
 
 .photo-picker-tile {
@@ -2633,17 +2707,25 @@ body.settings-open .settings-panel .ai-provider-card.focused {
   overflow-y: auto;
   margin-top: 8px;
   padding-right: 6px;
-  gap: 6px;
+}
+
+/* Chromium 68 ignores flex gap: the spacing is a margin on every child but the first. */
+.settings-track-list > :not(:first-child) {
+  margin-top: 6px;
 }
 
 .settings-track-row {
   display: flex;
   align-items: center;
-  gap: 14px;
   padding: 10px 12px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.05);
   font-size: 20px;
+}
+
+/* Chromium 68 ignores flex gap: the spacing is a margin on every child but the first. */
+.settings-track-row > :not(:first-child) {
+  margin-left: 14px;
 }
 
 .settings-track-title {
