@@ -83,12 +83,21 @@ class Screen(unittest.TestCase):
 
     def test_smoother_follows_cuts_faster(self):
         s = amb.Smoother()
-        s.step((0, 0, 0))
-        small = s.step((40, 0, 0))[0]
+        s.step((0, 0, 0), 0.05)
+        small = s.step((40, 0, 0), 0.05)[0]
         s2 = amb.Smoother()
-        s2.step((0, 0, 0))
-        cut = s2.step((255, 0, 0))[0]
+        s2.step((0, 0, 0), 0.05)
+        cut = s2.step((255, 0, 0), 0.05)[0]
         self.assertLess(small / 40.0, cut / 255.0)
+
+    def test_the_fade_reaches_the_colour_in_small_steps(self):
+        s = amb.Smoother()
+        s.step((0, 0, 0), 0.05)
+        values = [s.step((0, 0, 200), 0.05)[2] for _ in range(40)]   # two seconds
+        steps = [b - a for a, b in zip([0] + values, values)]
+        self.assertGreater(values[-1], 190)
+        self.assertLess(max(steps), 40)                                # no jump
+        self.assertGreater(len([v for v in values if v < 150]), 4)
 
 
 class Conf(unittest.TestCase):
@@ -149,7 +158,7 @@ class Loop(unittest.TestCase):
         self.power = ['Active']
         self.now = [1000.0]
         self.a = amb.Ambilight(conf_source=lambda: amb.clean_conf(self.conf), power=lambda: self.power[0],
-                               clock=lambda: self.now[0])
+                               clock=lambda: self.now[0], grabber=amb.Grabber(threaded=False))
 
     def tearDown(self):
         amb.Strip, amb.capture, amb.reset_bluetooth, amb.stale_link, amb.PREVIEW, amb.RUN = self.saved
@@ -216,6 +225,26 @@ class Loop(unittest.TestCase):
         self.assertIsNone(self.a.step())
         self.a.release()
         self.assertEqual(strip.colors()[-1], (10, 20, 30))
+
+    def test_between_captures_the_strip_keeps_fading(self):
+        frames = [amb.bmp_pixels(bmp(16, 8, lambda x, y: (0, 0, 0)))]
+
+        class Slow(object):
+            misses = 0
+
+            def latest(self):
+                return 1, frames[0]              # the same capture, asked many times
+        self.a.grabber = Slow()
+        self.a.step()
+        frames[0] = amb.bmp_pixels(bmp(16, 8, lambda x, y: (0, 0, 255)))
+        self.a.grabber.latest = lambda: (2, frames[0])
+        blues = []
+        for _ in range(30):
+            self.now[0] += amb.TICK
+            self.a.step()
+            blues.append(self.a.strip.colors()[-1][2])
+        self.assertGreater(len(set(blues)), 8)     # many small writes, not one jump
+        self.assertGreater(blues[-1], 200)
 
     def test_a_stale_link_is_cleared_by_restarting_bluetooth(self):
         tries = []

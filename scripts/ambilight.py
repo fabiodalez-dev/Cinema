@@ -30,6 +30,7 @@ Runs on the TV's Python 2.7 and on Python 3 for the tests.
 from __future__ import print_function
 
 import json
+import math
 import os
 import struct
 import subprocess
@@ -45,7 +46,7 @@ NAME_PREFIXES = ('ELK-', 'MELK', 'ELK~', 'LEDBLE', 'LED LIGHT STRIP', 'XSL-')
 WIDTH, HEIGHT = 240, 136
 STEP = 8                 # every 8th pixel in both directions: 30 x 17 samples
 DARK = 24                # a pixel whose brightest channel is below this is black
-INTERVAL = 0.1           # seconds per frame: about 10 colours a second
+TICK = 0.05              # the fade: a colour every 50 ms, plus the write itself
 MIN_GAP = 0.06           # never two writes closer than this (the strip drops them)
 
 
@@ -212,25 +213,69 @@ def boost(rgb, saturation=1.15, gamma=1.6):
 
 
 class Smoother(object):
-    """Follows the target colour a step at a time, faster on a big change (a
-    cut) than on a small one, so the light neither flickers nor drags."""
+    """Fades towards the target colour over time: about `slow` seconds on a
+    small change, `fast` on a big one (a cut), so the light neither jumps
+    nor drags. Called many times between two captures."""
 
-    def __init__(self, slow=0.25, fast=0.6):
+    def __init__(self, slow=0.7, fast=0.25):
         self.slow = slow
         self.fast = fast
         self.value = None
 
-    def step(self, target):
+    def step(self, target, dt):
         if self.value is None:
             self.value = tuple(float(c) for c in target)
             return self.value
         dist = max(abs(a - b) for a, b in zip(self.value, target))
-        k = self.fast if dist > 90 else self.slow
+        k = 1.0 - math.exp(-max(0.0, dt) / (self.fast if dist > 90 else self.slow))
         self.value = tuple(a + (b - a) * k for a, b in zip(self.value, target))
         return self.value
 
 
-def changed(prev, cur, threshold=3):
+class Grabber(object):
+    """The screen, captured in a thread of its own. With a video playing a
+    capture takes about 0.45 s whatever its size, so the strip fades towards
+    the last capture instead of waiting for the next. The thread stops when
+    nobody asks for two seconds (TV off, strip released)."""
+
+    def __init__(self, threaded=True):
+        self.threaded = threaded
+        self.frame = None
+        self.seq = 0
+        self.misses = 0
+        self.wanted = 0.0
+        self.thread = None
+
+    def _grab(self):
+        f = capture()
+        if f is None:
+            self.misses += 1
+            return False
+        self.misses = 0
+        self.frame = f
+        self.seq += 1
+        return True
+
+    def _run(self):
+        while time.time() - self.wanted < 2:
+            if not self._grab():
+                time.sleep(0.2)
+        self.frame = None                     # old by the time it is asked again
+
+    def latest(self):
+        """(number of the capture, its pixels or None)."""
+        if not self.threaded:
+            self._grab()
+            return self.seq, self.frame
+        self.wanted = time.time()
+        if self.thread is None or not self.thread.is_alive():
+            self.thread = threading.Thread(target=self._run)
+            self.thread.daemon = True
+            self.thread.start()
+        return self.seq, self.frame
+
+
+def changed(prev, cur, threshold=2):
     if prev is None:
         return True
     return max(abs(int(round(a)) - int(round(b))) for a, b in zip(prev, cur)) >= threshold
@@ -528,7 +573,7 @@ class Ambilight(object):
     connection is kept while the TV is on, and settings are read again while
     running instead of restarting this process."""
 
-    def __init__(self, conf_source=None, power=lambda: ON, clock=time.time):
+    def __init__(self, conf_source=None, power=lambda: ON, clock=time.time, grabber=None):
         self.conf_source = conf_source or load_conf
         self.power = power
         self.clock = clock
@@ -536,11 +581,15 @@ class Ambilight(object):
         self.strip = None
         self.stopping = threading.Event()
         self.smooth = Smoother()
+        self.grabber = grabber or Grabber()
+        self.seen = None            # the capture the target comes from
+        self.target = None
+        self.last_tick = 0
+        self.unreadable = False
         self.sent = None
         self.mode = None            # 'follow', 'ambient' or 'preview': what the strip shows
         self.preview_until = 0
         self.preview_address = None
-        self.misses = 0
         self.retry_at = 0
         self.retries = 0
         self.lock = threading.RLock()
@@ -664,22 +713,30 @@ class Ambilight(object):
             if self.strip and self.strip.connected:
                 self.show_ambient()
             self.smooth = Smoother()
+            self.seen = self.target = None
             return 1.0
         s = self._strip()
         if s is None:
             return 1.0
         t0 = self.clock()
-        frame = capture()
-        if frame is None:
-            self.misses += 1
-            if self.misses == 20:
-                log('ambilight: the screen cannot be read (protected video?)')
-            return 0.5
-        self.misses = 0
-        color = scaled(self.smooth.step(boost(screen_color(*frame))), self.conf['brightness'])
+        seq, frame = self.grabber.latest()
+        if self.grabber.misses >= 20 and not self.unreadable:
+            self.unreadable = True
+            log('ambilight: the screen cannot be read (protected video?)')
+        if frame is not None:
+            self.unreadable = False
+            if seq != self.seen:
+                self.seen = seq
+                self.target = scaled(boost(screen_color(*frame)), self.conf['brightness'])
+        if self.target is None:
+            return 0.1
+        # Between two captures the strip keeps fading towards the last one.
+        dt = min(0.5, t0 - self.last_tick) if self.last_tick else TICK
+        self.last_tick = t0
+        color = self.smooth.step(self.target, dt)
         if self.mode != 'follow' or changed(self.sent, color) or self.clock() - s.last_write > 2:
             self.show(color, 'follow')
-        return max(0.0, INTERVAL - (self.clock() - t0))
+        return max(0.0, TICK - (self.clock() - t0))
 
     def run(self):
         try:
