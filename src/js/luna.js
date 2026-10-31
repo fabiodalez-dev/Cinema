@@ -1388,6 +1388,27 @@ export function appUpdateProgress() {
   });
 }
 
+const HBCHANNEL = 'luna://org.webosbrew.hbchannel.service';
+
+/** Homebrew Channel's own settings (blockUpdates, failsafe, sshd…), or null. */
+export function homebrewConfiguration() {
+  return lunaRequest(HBCHANNEL, {method: 'getConfiguration', parameters: {}})
+    .catch(function () { return null; });
+}
+
+/**
+ * Homebrew Channel's "Block system updates": it keeps LG's firmware updates
+ * away, which could take root (and Cinema's TV tools) off the TV. It takes
+ * effect after the next reboot; security updates are blocked too.
+ */
+export function setBlockUpdates(on) {
+  return lunaRequest(HBCHANNEL, {method: 'setConfiguration', parameters: {blockUpdates: !!on}})
+    .then(function (res) {
+      if (res.blockUpdates !== undefined && res.blockUpdates !== !!on) throw new Error('non applicato');
+      return res;
+    });
+}
+
 /** Switch one LG data agreement flag on or off (see tvtools.py set_consent). */
 export function tvToolsConsent(key, on) {
   if (!/^[A-Za-z0-9]+$/.test(key)) return Promise.reject(new Error('bad key'));

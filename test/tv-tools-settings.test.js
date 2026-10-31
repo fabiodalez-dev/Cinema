@@ -132,6 +132,27 @@ describe('TV tools settings', () => {
     expect(apply.mock.calls[0][0]).toEqual({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: [], remoteKeys: {}, powerOffAt: null, cinemaFirst: false});
   });
 
+  it('Homebrew Channel update block: shown when known, saved on its own', async () => {
+    document.body.innerHTML = '<div class="settings-panel" id="p"><div class="settings-tab-pane" data-tab="tv"></div></div>';
+    const panel = document.getElementById('p');
+    const apply = vi.fn(async () => true);
+    const blockUpdates = vi.fn(async () => ({returnValue: true}));
+    mountTvToolsSettings(panel, {status: () => Promise.resolve(Object.assign(status(), {blockUpdates: false})), apply, blockUpdates});
+    await new Promise((r) => setTimeout(r, 0));
+    const row = [...panel.querySelectorAll('.settings-row')].find((r) => r.textContent === 'Blocca gli aggiornamenti del software LG');
+    expect(row.querySelector('input').checked).toBe(false);
+    expect(await panel.__tvToolsSave()).toBe(null);
+    row.querySelector('input').checked = true;
+    expect(await panel.__tvToolsSave()).toBe(true);
+    expect(blockUpdates.mock.calls).toEqual([[true]]);
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it('no update block row when Homebrew Channel does not say', async () => {
+    const panel = await mounted(status());
+    expect(panel.textContent).not.toContain('Blocca gli aggiornamenti');
+  });
+
   it('says so on a TV without root or Python', async () => {
     const panel = await mounted(null);
     expect(panel.textContent).toMatch(/non sono disponibili/);

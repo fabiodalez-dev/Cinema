@@ -37,6 +37,8 @@ import {
   appUpdateInstall,
   appUpdateProgress,
   tvToolsConsent,
+  homebrewConfiguration,
+  setBlockUpdates,
   getTvCurrentChannelId,
   tuneTvChannel,
   getTvProgramme
@@ -49,6 +51,7 @@ import {createScreensaverPowerOff} from './screensaver-poweroff.js';
 import {setLiteImages} from './backgrounds.js';
 import {createVoiceIndicator} from './voice-indicator.js';
 import {createCustomScreensaver} from './screensaver.js';
+import {createLgScreensaverGuard} from './lg-screensaver.js';
 import {createWeatherPanel} from './weather.js';
 import {addVoiceListener, setVoiceWsEnabled} from './voice-ws.js';
 import {resolveVoiceLaunch} from './voice-launch.js';
@@ -274,7 +277,8 @@ const settings = createSettingsPanel(elements.settingsPanel, getBaseConfig, {
   },
   onRendered: function () {
     if (cinematic) cinematic.mountSettings(elements.settingsPanel);
-    mountTvToolsSettings(elements.settingsPanel, {status: tvToolsStatus, apply: tvToolsApply, consent: tvToolsConsent,
+    mountTvToolsSettings(elements.settingsPanel, {status: tvToolsStatusWithUpdates, apply: tvToolsApply, consent: tvToolsConsent,
+      blockUpdates: setBlockUpdates,
       updates: {check: appUpdatesCheck, install: appUpdateInstall, progress: appUpdateProgress}});
     // Land focus inside the panel so wheel / arrows navigate options immediately.
     if (focus && typeof focus.focusWithin === 'function') {
@@ -414,6 +418,31 @@ const customScreensaver = createCustomScreensaver({
     reclaimInput();
   }
 });
+
+// LG's screensaver asks first: no while Cinema is in front with its own
+// screensaver on, yes in the background (src/js/lg-screensaver.js).
+const lgScreensaver = createLgScreensaverGuard({
+  request: function (uri, opts) { return window.webOS.service.request(uri, opts); },
+  hold: function () {
+    if (!visible || document.hidden) return false;
+    if (document.body.classList.contains('app-inactive')) return false;
+    return (getConfig().launcher || {}).customScreensaver !== false;
+  },
+  onAnswer: function (asked, ack) {
+    console.info('[cinema] LG screensaver asked: ' + (ack ? 'yes' : 'no'));
+  }
+});
+if (window.webOS && window.webOS.service) lgScreensaver.start();
+window.cinemaLgScreensaver = lgScreensaver;
+
+// The TV tools status plus Homebrew Channel's update block, read side by side.
+function tvToolsStatusWithUpdates() {
+  return Promise.all([tvToolsStatus(), homebrewConfiguration()]).then(function (r) {
+    const status = r[0];
+    if (status && r[1] && typeof r[1].blockUpdates === 'boolean') status.blockUpdates = r[1].blockUpdates;
+    return status;
+  });
+}
 
 const apps = createAppGrid(elements.appGrid, getConfig, {
   // Wide dock: HDMI inputs as tiles.

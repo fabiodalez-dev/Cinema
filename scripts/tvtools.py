@@ -940,6 +940,142 @@ EMPTY_CONF = {'preloadOff': [], 'settingsOff': [], 'servicesOff': [], 'keepInMem
 UNINSTALL = {'misses': 0}
 
 
+# ---- way out with the remote ------------------------------------------------
+# Read from the kernel's input devices without grabbing them, so LG and LG
+# Input Hook get every key as before. Three short presses of Home within 2 s,
+# or Back held for 1.2 s and let go while Cinema is in front, open LG's Home: a way out
+# when Cinema hangs or LG Input Hook keeps reopening it.
+
+KEY_HOME = 773
+KEY_BACK = 412
+EVENT_SIZE = 16          # struct input_event on 32-bit ARM: llHHi
+KEYLOG_MARK = '/tmp/cinema-keylog'   # when it exists, every key code is logged
+
+
+def remote_devices(text):
+    """/dev/input/eventN of the LG remotes, from /proc/bus/input/devices."""
+    found, name = [], ''
+    for line in (text or '').splitlines():
+        if line.startswith('N: Name='):
+            name = line[8:].strip().strip('"')
+        elif line.startswith('H: Handlers=') and name.startswith('LGE') and 'kbd' in line[12:].split():
+            for h in line[12:].split():
+                if h.startswith('event'):
+                    found.append('/dev/input/' + h)
+    return found
+
+
+class EscapeKeys(object):
+    """Turns key events (code, value, time) into 'home3' or 'backhold'.
+    value is 1 for a press, 0 for a release and 2 for autorepeat. Back held
+    counts when it is let go: while it is still down its repeats would reach
+    LG's Home and close it again."""
+    SHORT_MIN, SHORT_MAX, WINDOW, HOLD = 0.04, 0.5, 2.0, 1.2
+
+    def __init__(self):
+        self.home_down = None
+        self.home_taps = []
+        self.back_down = None
+
+    def key(self, code, value, t):
+        if code == KEY_HOME:
+            if value == 1:
+                self.home_down = t
+            elif value == 0 and self.home_down is not None:
+                held = t - self.home_down
+                self.home_down = None
+                if self.SHORT_MIN <= held <= self.SHORT_MAX:
+                    self.home_taps = [x for x in self.home_taps if t - x <= self.WINDOW] + [t]
+                    if len(self.home_taps) >= 3:
+                        self.home_taps = []
+                        return 'home3'
+                else:
+                    self.home_taps = []
+        elif code == KEY_BACK:
+            if value == 1:
+                self.back_down = t
+            elif value == 0 and self.back_down is not None:
+                held = t - self.back_down
+                self.back_down = None
+                if held >= self.HOLD:
+                    return 'backhold'
+        elif value == 1:
+            self.home_taps = []
+        return None
+
+
+def foreground_app():
+    return (luna('luna://com.webos.applicationManager/getForegroundAppInfo', {}) or {}).get('appId')
+
+
+def open_lg_home(why):
+    log('way out (%s): LG Home' % why)
+    luna('luna://com.webos.applicationManager/launch', {'id': 'com.webos.app.home'})
+
+
+def escape_action(what):
+    if what == 'home3':
+        # LG Input Hook opens Cinema on each press: let the last one land first.
+        time.sleep(0.8)
+        open_lg_home('Home three times')
+    elif what == 'backhold' and foreground_app() == CINEMA_ID:
+        open_lg_home('Back held')
+
+
+def escape_loop():
+    import select
+    import struct
+    machine = EscapeKeys()
+    fds, rescan = {}, 0
+    while True:
+        now = time.time()
+        if not fds or now >= rescan:
+            for fd in fds:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            fds = {}
+            try:
+                paths = remote_devices(open('/proc/bus/input/devices').read())
+            except IOError:
+                paths = []
+            for path in paths:
+                try:
+                    fds[os.open(path, os.O_RDONLY | os.O_NONBLOCK)] = path
+                except OSError:
+                    pass
+            rescan = now + 300
+            if not fds:
+                time.sleep(30)
+                continue
+        try:
+            ready = select.select(list(fds), [], [], 30)[0]
+        except (select.error, OSError, ValueError):
+            rescan = 0
+            continue
+        events = []
+        for fd in ready:
+            try:
+                data = os.read(fd, EVENT_SIZE * 32)
+            except OSError:
+                rescan = 0
+                continue
+            for i in range(0, len(data) - EVENT_SIZE + 1, EVENT_SIZE):
+                sec, usec, etype, code, value = struct.unpack('llHHi', data[i:i + EVENT_SIZE])
+                if etype == 1:
+                    events.append((code, value, sec + usec / 1e6))
+        if events and os.path.exists(KEYLOG_MARK):
+            log('keys %s' % ' '.join('%d:%d' % (c, v) for c, v, _ in events))
+        fired = [machine.key(c, v, t) for c, v, t in events]
+        for what in fired:
+            if what:
+                try:
+                    escape_action(what)
+                except Exception as e:
+                    log('way out failed: %s' % e)
+
+
 def app_removed():
     return os.path.isdir(HBC_DIR) and not os.path.isfile(os.path.join(APP_DIR, 'appinfo.json'))
 
@@ -1028,19 +1164,41 @@ def boot_input(inputs):
     return 'DTV', 'com.webos.app.livetv'
 
 
-def pinned_lastinput(input_id, app_id):
-    return {'type': input_id, 'appId': app_id, 'physicalLastSourceId': input_id, 'physicalLastSourceAppId': CINEMA_ID}
-
-
-def pinned_from_lg(lg):
-    """LG's own last input (Live TV, usually) kept as the input bootd starts,
-    with Cinema as the app: while Cinema starts, the stand-in shows that input
-    instead of a black screen."""
-    lg = lg if isinstance(lg, dict) and lg.get('physicalLastSourceId') else DEFAULT_LASTINPUT
-    source = lg.get('physicalLastSourceId')
-    app = lg.get('appId') if lg.get('appId') and lg.get('appId') != CINEMA_ID else DEFAULT_LASTINPUT['appId']
-    return {'type': lg.get('type') or source, 'appId': app, 'physicalLastSourceId': source,
+def pinned_lastinput(input_id):
+    """The last input bootd reads at power-on: Cinema as an app input
+    (MVPD_IP). bootd then starts Cinema itself as the first app ("OTT GIP"
+    in bootd.log) at about 24 s, the real app and not the empty input card
+    it opens for an HDMI or Live TV entry. physicalLastSourceId is a free
+    HDMI: with Live TV there, LG reopened Live TV over Cinema at the end of
+    its boot (seen at 82 s)."""
+    return {'type': 'MVPD_IP', 'appId': CINEMA_ID, 'physicalLastSourceId': input_id,
             'physicalLastSourceAppId': CINEMA_ID}
+
+
+LAST_APP_KEYS = ('lastInputApp', 'physicalLastInputApp')
+
+
+def keep_last_input_app():
+    """LG's settings lastInputApp/physicalLastInputApp (category general) are
+    what SAM's last-input handler opens at normal-boot-done (about 70 s);
+    EIM rewrites them whenever the input changes. With Live TV there LG
+    opened Live TV over Cinema at the end of the boot; with Cinema there it
+    opens Cinema again."""
+    cur = (luna('luna://com.webos.settingsservice/getSystemSettings',
+                {'category': 'general', 'keys': list(LAST_APP_KEYS)}) or {}).get('settings') or {}
+    if all(cur.get(k) == CINEMA_ID for k in LAST_APP_KEYS):
+        return False
+    luna('luna://com.webos.settingsservice/setSystemSettings',
+         {'category': 'general', 'settings': dict((k, CINEMA_ID) for k in LAST_APP_KEYS)})
+    return True
+
+
+def release_last_input_app():
+    cur = (luna('luna://com.webos.settingsservice/getSystemSettings',
+                {'category': 'general', 'keys': list(LAST_APP_KEYS)}) or {}).get('settings') or {}
+    back = dict((k, 'com.webos.app.livetv') for k in LAST_APP_KEYS if cur.get(k) == CINEMA_ID)
+    if back:
+        luna('luna://com.webos.settingsservice/setSystemSettings', {'category': 'general', 'settings': back})
 
 
 def lastinput_pinned():
@@ -1064,12 +1222,26 @@ def apply_first_app(conf):
             current = read_json(LASTINPUT, None)
             if isinstance(current, dict) and current.get('physicalLastSourceAppId') != CINEMA_ID:
                 write_plain(LG_LASTINPUT, json.dumps(current, separators=(',', ':')), 0o600)
-        # An HDMI with nothing on it as the input bootd starts: with Live TV
-        # there, LG reopened Live TV over Cinema at the end of its boot (seen
-        # at 82 s). Live TV still shows while Cinema starts: the key filter
-        # opens it (START_FIRST_JS).
+        # Cinema registered as an app input. Without it LG hid Cinema at
+        # normal-boot-done (about 70 s) and its last-input handler opened
+        # Live TV; with it Cinema stays. EIM keeps it across reboots and
+        # answers true again when it is already there.
+        # Once a boot is enough.
+        mark = os.path.join(RUN, 'eim-registered')
+        if not os.path.exists(mark):
+            r = luna('luna://com.webos.service.eim/addDevice', {'appId': CINEMA_ID, 'pigImage': '', 'mvpdIcon': ''})
+            if r.get('returnValue'):
+                try:
+                    open(mark, 'w').close()
+                except IOError:
+                    pass
+                log('power-on: Cinema registered as an app input')
+        if keep_last_input_app():
+            log('power-on: Cinema is LG\'s last input app')
+        # The key filter (START_FIRST_JS) stays as the fallback: it covers
+        # an input card with Live TV and relaunches Cinema if bootd did not.
         inputs = luna('luna://com.webos.service.eim/getAllInputStatus', {}).get('devices')
-        want = json.dumps(pinned_lastinput(*boot_input(inputs)), separators=(',', ':'))
+        want = json.dumps(pinned_lastinput(boot_input(inputs)[0]), separators=(',', ':'))
         have = None
         try:
             have = open(PINNED).read()
@@ -1098,6 +1270,8 @@ def apply_first_app(conf):
                 os.remove(path)
             except OSError:
                 pass
+        luna('luna://com.webos.service.eim/deleteDevice', {'appId': CINEMA_ID})
+        release_last_input_app()
         log('power-on: LG last input back')
 
 
@@ -1220,6 +1394,12 @@ def daemon():
         st = msg.get('state')
         if st and st != last['state']:
             log('power %s -> %s' % (last['state'], st))
+            if st != 'Active' and last['state'] == 'Active' and load_conf()['cinemaFirst']:
+                # Going off: the next power-on reads LG's last input app.
+                try:
+                    keep_last_input_app()
+                except Exception as e:
+                    log('last input app: %s' % e)
             if st == 'Active' and last['state'] not in (None, 'Active'):
                 # Switched on: LG may have put preloading and settings back.
                 time.sleep(1)
@@ -1244,6 +1424,7 @@ def daemon():
                                                                 {'category': cat, 'keys': keys, 'subscribe': True},
                                                                 on_settings)))
     threads.append(threading.Thread(target=power_off_loop))
+    threads.append(threading.Thread(target=escape_loop))
     for t in threads:
         t.daemon = True
         t.start()

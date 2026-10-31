@@ -259,8 +259,6 @@ class RunDir(unittest.TestCase):
             tv.RUN = old
 
 
-if __name__ == '__main__':
-    unittest.main()
 
 
 class PowerOnInput(unittest.TestCase):
@@ -276,8 +274,8 @@ class PowerOnInput(unittest.TestCase):
         self.assertEqual(tv.boot_input(None), ('DTV', 'com.webos.app.livetv'))
 
     def test_pinned_file_names_cinema_on_that_input(self):
-        self.assertEqual(tv.pinned_lastinput('HDMI_3', 'com.webos.app.hdmi3'),
-                         {'type': 'HDMI_3', 'appId': 'com.webos.app.hdmi3', 'physicalLastSourceId': 'HDMI_3',
+        self.assertEqual(tv.pinned_lastinput('HDMI_3'),
+                         {'type': 'MVPD_IP', 'appId': 'org.webosbrew.lounge.launcher', 'physicalLastSourceId': 'HDMI_3',
                           'physicalLastSourceAppId': 'org.webosbrew.lounge.launcher'})
 
     def test_switching_off_puts_lgs_file_back(self):
@@ -289,8 +287,8 @@ class PowerOnInput(unittest.TestCase):
             lg = {'type': 'DTV', 'appId': 'com.webos.app.livetv', 'physicalLastSourceId': 'DTV',
                   'physicalLastSourceAppId': 'com.webos.app.livetv'}
             json.dump(lg, open(tv.LG_LASTINPUT, 'w'))
-            json.dump(tv.pinned_lastinput('HDMI_3', 'com.webos.app.hdmi3'), open(tv.PINNED, 'w'))
-            json.dump(tv.pinned_lastinput('HDMI_3', 'com.webos.app.hdmi3'), open(tv.LASTINPUT, 'w'))
+            json.dump(tv.pinned_lastinput('HDMI_3'), open(tv.PINNED, 'w'))
+            json.dump(tv.pinned_lastinput('HDMI_3'), open(tv.LASTINPUT, 'w'))
             tv.apply_first_app({'cinemaFirst': False})
             self.assertEqual(json.load(open(tv.LASTINPUT)), lg)
             self.assertFalse(os.path.exists(tv.PINNED))
@@ -299,20 +297,95 @@ class PowerOnInput(unittest.TestCase):
             tv.LASTINPUT, tv.PINNED, tv.LG_LASTINPUT, tv.lastinput_pinned = old
 
 
-class PinnedFromLg(unittest.TestCase):
-    def test_lgs_input_is_kept_and_cinema_is_the_app(self):
-        lg = {'type': 'DTV', 'appId': 'com.webos.app.livetv', 'physicalLastSourceId': 'DTV',
-              'physicalLastSourceAppId': 'com.webos.app.livetv'}
-        self.assertEqual(tv.pinned_from_lg(lg), {'type': 'DTV', 'appId': 'com.webos.app.livetv',
-                                                 'physicalLastSourceId': 'DTV',
-                                                 'physicalLastSourceAppId': 'org.webosbrew.lounge.launcher'})
-
-    def test_missing_lg_file_means_live_tv(self):
-        self.assertEqual(tv.pinned_from_lg(None)['physicalLastSourceId'], 'DTV')
-
+class BootFilter(unittest.TestCase):
     def test_boot_filter_only_when_asked(self):
         self.assertNotIn('cinemaStartWatch', tv.filter_source(False))
         src = tv.filter_source(True)
         self.assertIn('cinemaStartWatch();', src)
         self.assertIn('applicationManager.launch("org.webosbrew.lounge.launcher", "{}")', src)
         self.assertIn('"boot-done"', src)
+
+
+class WayOut(unittest.TestCase):
+    DEVICES = (
+        'I: Bus=0019\nN: Name="CHECK INPUT"\nH: Handlers=kbd event0 \n\n'
+        'N: Name="LGE RCU"\nH: Handlers=kbd event1 \n\n'
+        'N: Name="Bluetooth-audio-source"\nH: Handlers=kbd event2 \n\n'
+        'N: Name="LGE M-RCU - Builtin [0]"\nH: Handlers=kbd mouse0 js0 event3 \n\n'
+        'N: Name="LGE Simple Premium"\nH: Handlers=mouse4 event7 \n')
+
+    def test_only_lg_remotes_with_keys(self):
+        self.assertEqual(tv.remote_devices(self.DEVICES), ['/dev/input/event1', '/dev/input/event3'])
+
+    def taps(self, m, start, n, held=0.1, gap=0.3):
+        out, t = [], start
+        for _ in range(n):
+            out.append(m.key(tv.KEY_HOME, 1, t))
+            out.append(m.key(tv.KEY_HOME, 0, t + held))
+            t += held + gap
+        return [x for x in out if x]
+
+    def test_three_short_home_presses(self):
+        self.assertEqual(self.taps(tv.EscapeKeys(), 100.0, 3), ['home3'])
+
+    def test_two_presses_or_slow_presses_do_nothing(self):
+        self.assertEqual(self.taps(tv.EscapeKeys(), 100.0, 2), [])
+        self.assertEqual(self.taps(tv.EscapeKeys(), 100.0, 3, gap=1.5), [])
+        self.assertEqual(self.taps(tv.EscapeKeys(), 100.0, 3, held=0.8), [])
+
+    def test_another_key_breaks_the_series(self):
+        m = tv.EscapeKeys()
+        self.taps(m, 100.0, 2)
+        m.key(103, 1, 100.9); m.key(103, 0, 101.0)
+        self.assertEqual(self.taps(m, 101.1, 1), [])
+
+    def test_back_held_counts_when_let_go(self):
+        m = tv.EscapeKeys()
+        self.assertIsNone(m.key(tv.KEY_BACK, 1, 50.0))
+        self.assertIsNone(m.key(tv.KEY_BACK, 2, 51.0))
+        self.assertIsNone(m.key(tv.KEY_BACK, 2, 51.5))
+        self.assertEqual(m.key(tv.KEY_BACK, 0, 51.6), 'backhold')
+        self.assertIsNone(m.key(tv.KEY_BACK, 0, 52.0))
+
+    def test_short_back_does_nothing(self):
+        m = tv.EscapeKeys()
+        m.key(tv.KEY_BACK, 1, 50.0)
+        self.assertIsNone(m.key(tv.KEY_BACK, 0, 50.3))
+
+
+class LastInputApp(unittest.TestCase):
+    def run_with(self, settings):
+        calls, old = [], tv.luna
+        def fake(uri, payload, wait=5000):
+            calls.append((uri.rsplit('/', 1)[1], payload))
+            return {'settings': settings} if uri.endswith('getSystemSettings') else {'returnValue': True}
+        tv.luna = fake
+        try:
+            return calls, fake
+        finally:
+            pass
+
+    def tearDown(self):
+        tv.luna = self.old
+
+    def setUp(self):
+        self.old = tv.luna
+
+    def test_sets_cinema_when_lg_has_live_tv(self):
+        calls, _ = self.run_with({'lastInputApp': 'com.webos.app.livetv', 'physicalLastInputApp': 'com.webos.app.livetv'})
+        self.assertTrue(tv.keep_last_input_app())
+        self.assertEqual(calls[-1], ('setSystemSettings', {'category': 'general', 'settings': {
+            'lastInputApp': 'org.webosbrew.lounge.launcher', 'physicalLastInputApp': 'org.webosbrew.lounge.launcher'}}))
+
+    def test_nothing_to_do_when_already_cinema(self):
+        calls, _ = self.run_with({'lastInputApp': 'org.webosbrew.lounge.launcher', 'physicalLastInputApp': 'org.webosbrew.lounge.launcher'})
+        self.assertFalse(tv.keep_last_input_app())
+        self.assertEqual([c[0] for c in calls], ['getSystemSettings'])
+
+    def test_release_gives_live_tv_back_only_where_cinema_was(self):
+        calls, _ = self.run_with({'lastInputApp': 'org.webosbrew.lounge.launcher', 'physicalLastInputApp': 'com.webos.app.hdmi2'})
+        tv.release_last_input_app()
+        self.assertEqual(calls[-1], ('setSystemSettings', {'category': 'general', 'settings': {'lastInputApp': 'com.webos.app.livetv'}}))
+
+if __name__ == '__main__':
+    unittest.main()
