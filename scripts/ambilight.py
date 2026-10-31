@@ -423,7 +423,9 @@ ROOT = os.environ.get('TVTOOLS_ROOT', '/var/lib/launch-home-cinema')
 CONF = os.path.join(ROOT, 'tvtools.json')
 RUN = os.environ.get('TVTOOLS_RUN', '/run/cinema-tvtools')
 PIDFILE = os.path.join(RUN, 'ambilight.pid')
-LOGFILE = os.environ.get('AMBILIGHT_LOG') or os.path.join(RUN, 'ambilight.log')
+# On flash, next to tvtools.json: /run is emptied when the TV restarts, and
+# what went wrong before a restart is what is needed. Few lines a day.
+LOGFILE = os.environ.get('AMBILIGHT_LOG') or os.path.join(ROOT, 'ambilight.log')
 PREVIEW = os.path.join(RUN, 'ambilight-preview.json')
 # The capture service runs as root and follows the path it is given: the frame
 # goes in this root-only folder, never at a fixed name under /tmp, where any
@@ -710,7 +712,7 @@ def file_log(msg):
             with open_private(LOGFILE, 'w') as f:
                 f.writelines(tail)
         with open_private(LOGFILE, 'a') as f:
-            f.write(time.strftime('%H:%M:%S ') + msg + '\n')
+            f.write(time.strftime('%d/%m %H:%M:%S ') + msg + '\n')
     except Exception:
         pass
 
