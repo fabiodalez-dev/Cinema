@@ -126,6 +126,8 @@ async function build() {
     'disable-voice.sh',
     // Settings -> TV: root daemon keeping LG's extras off.
     'tvtools.py',
+    // Settings -> TV -> Luci LED: the strip behind the TV follows the screen.
+    'ambilight.py',
     'update-app.py',
     'failsafe-check.sh',
     // Homebrew Channel watchdog, installed as a boot hook by enable-tvtools.sh.

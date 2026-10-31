@@ -60,6 +60,46 @@ export const REMOTE_KEY_LABELS = {
 };
 const KEEP_LG = '__lg';
 
+// Settings -> TV -> Luci LED: the room light the strip keeps with the TV off
+// (scripts/ambilight.py AMBIENT, same names and colours).
+export const LED_AMBIENT = [
+  {value: 'warm', label: 'Bianco caldo', rgb: [255, 120, 30]},
+  {value: 'white', label: 'Bianco', rgb: [255, 255, 255]},
+  {value: 'orange', label: 'Arancione', rgb: [255, 70, 0]},
+  {value: 'red', label: 'Rosso', rgb: [255, 0, 0]},
+  {value: 'pink', label: 'Rosa', rgb: [255, 30, 110]},
+  {value: 'purple', label: 'Viola', rgb: [140, 0, 255]},
+  {value: 'blue', label: 'Blu', rgb: [0, 40, 255]},
+  {value: 'sky', label: 'Azzurro', rgb: [0, 170, 255]},
+  {value: 'green', label: 'Verde', rgb: [0, 255, 40]},
+  {value: 'off', label: 'Spenta', rgb: [0, 0, 0]},
+  {value: 'keep', label: 'Lascia l’ultimo colore', rgb: null}
+];
+export const LED_DEFAULT = {address: null, name: '', follow: false, brightness: 100, ambient: 'warm', ambientBrightness: 60};
+
+/** The colour Prova shows: the room light at its brightness, null for "keep". */
+export function ambientRgb(ambient, brightness) {
+  const entry = LED_AMBIENT.find(function (a) { return a.value === ambient; });
+  if (!entry || !entry.rgb) return null;
+  return entry.rgb.map(function (c) { return Math.round(c * brightness / 100); });
+}
+
+/** The ledStrip configuration from the LED controls (null: not shown). */
+export function ledDraft(stored, led) {
+  const base = Object.assign({}, LED_DEFAULT, stored || {});
+  if (!led) return base;
+  const address = led.strip.value || null;
+  const option = led.strip.selectedOptions && led.strip.selectedOptions[0];
+  return {
+    address: address,
+    name: address ? ((option && option.dataset.name) || (address === base.address ? base.name : '')) : '',
+    follow: !!address && !!led.follow.checked,
+    brightness: parseInt(led.brightness.value, 10) || 100,
+    ambient: led.ambient.value,
+    ambientBrightness: parseInt(led.ambientBrightness.value, 10) || 60
+  };
+}
+
 /** What a key can open: Cinema and Bloomee first, then the inputs, then the other apps. */
 export function keyTargets(status) {
   const apps = status.apps || {};
@@ -115,8 +155,9 @@ export function tvToolsDraft(status, controls) {
   let powerOffAt = conf.powerOffAt || null;
   if (controls.powerOffAt) powerOffAt = controls.powerOffAt.value || null;
   const cinemaFirst = controls.cinemaFirst ? !!controls.cinemaFirst.checked : conf.cinemaFirst === true;
+  const ledStrip = ledDraft(conf.ledStrip, controls.led);
   return {preloadOff: preloadOff, settingsOff: settingsOff, servicesOff: servicesOff, keepInMemory: keepInMemory,
-    remoteKeys: remoteKeys, powerOffAt: powerOffAt, cinemaFirst: cinemaFirst};
+    remoteKeys: remoteKeys, powerOffAt: powerOffAt, cinemaFirst: cinemaFirst, ledStrip: ledStrip};
 }
 
 /** Every half hour of the day, as HH:MM. */
@@ -134,7 +175,8 @@ function normalized(conf) {
   Object.keys(conf.remoteKeys || {}).sort().forEach(function (k) { keys[k] = conf.remoteKeys[k]; });
   return {preloadOff: sorted(conf.preloadOff), settingsOff: sorted(conf.settingsOff),
     servicesOff: sorted(conf.servicesOff), keepInMemory: sorted(conf.keepInMemory), remoteKeys: keys,
-    powerOffAt: conf.powerOffAt || null, cinemaFirst: conf.cinemaFirst === true};
+    powerOffAt: conf.powerOffAt || null, cinemaFirst: conf.cinemaFirst === true,
+    ledStrip: Object.assign({}, LED_DEFAULT, conf.ledStrip || {})};
 }
 
 /** The apps to list: installed, not essential, and loaded by LG (or switched off here). */
@@ -272,12 +314,111 @@ export function mountTvToolsSettings(panel, api) {
     root.appendChild(s);
     return s;
   }
+  function select(sectionNode, label, options, value) {
+    const row = node('div', 'settings-row');
+    row.appendChild(node('span', '', label));
+    const sel = document.createElement('select');
+    sel.className = 'focusable';
+    sel.dataset.focusIndex = String(focusIndex++);
+    sel.setAttribute('aria-label', label);
+    options.forEach(function (o) {
+      const opt = document.createElement('option');
+      opt.value = o.value;
+      opt.textContent = o.label;
+      sel.appendChild(opt);
+    });
+    sel.value = value;
+    row.appendChild(sel);
+    sectionNode.appendChild(row);
+    return sel;
+  }
   function button(label, handler) {
     const b = node('button', 'settings-button focusable', label);
     b.type = 'button';
     b.dataset.focusIndex = String(focusIndex++);
     b.addEventListener('click', handler);
     return b;
+  }
+
+  function percentOptions(from) {
+    const out = [];
+    for (let p = 100; p >= from; p -= 10) out.push({value: String(p), label: p + '%'});
+    return out;
+  }
+
+  // Luci LED: the strip behind the TV (scripts/ambilight.py). The strip list
+  // starts with the saved one; Cerca adds the ones in range.
+  function ledSection(led) {
+    const sec = section('Luci LED dietro la TV', 'Una striscia LED Bluetooth (quelle dell’app Lotus Lantern, che si chiamano ELK-BLEDOM o simili) segue i colori del film. Quando spegni la TV con il telecomando, o si spegne solo lo schermo, la striscia passa alla luce d’ambiente scelta qui e la tiene. Mentre la TV è accesa la striscia è collegata alla TV: l’app del telefono la raggiunge con la TV spenta.');
+    const strip = select(sec, 'Striscia', [{value: '', label: 'Nessuna'}], '');
+    function addStrip(address, name, rssi) {
+      if (!address) return;
+      const existing = Array.prototype.find.call(strip.options, function (o) { return o.value === address; });
+      const label = (name || 'Striscia LED') + ' · ' + address.toUpperCase() + (rssi != null ? ' · segnale ' + rssi + ' dBm' : '');
+      if (existing) {
+        existing.textContent = label;
+        if (name) existing.dataset.name = name;
+        return;
+      }
+      const o = document.createElement('option');
+      o.value = address;
+      o.textContent = label;
+      o.dataset.name = name || '';
+      strip.appendChild(o);
+    }
+    if (led.address) addStrip(led.address, led.name);
+    strip.value = led.address || '';
+    const found = node('p', 'settings-hint', led.address ? '' : 'Premi Cerca con la striscia accesa e l’app del telefono chiusa.');
+    const scanRow = node('div', 'settings-row');
+    scanRow.appendChild(node('span', '', 'Strisce nelle vicinanze'));
+    const scanButton = button('Cerca', async function () {
+      scanButton.disabled = true;
+      found.textContent = 'Ricerca in corso, circa 10 secondi…';
+      try {
+        const list = await api.ledScan();
+        list.forEach(function (d) { addStrip(d.address, d.name, d.rssi); });
+        if (list.length && !strip.value) strip.value = list[0].address;
+        found.textContent = list.length
+          ? 'Trovate: ' + list.length + '. Scegli la striscia, poi Salva.'
+          : 'Nessuna striscia trovata. Controlla che sia accesa e che il telefono non sia collegato.';
+      } catch (err) {
+        found.textContent = 'Ricerca non riuscita: ' + (err && err.message ? err.message : err);
+      } finally {
+        scanButton.disabled = false;
+      }
+    });
+    scanRow.appendChild(scanButton);
+    sec.appendChild(scanRow);
+    sec.appendChild(found);
+    const follow = toggle(sec, 'I LED seguono i colori dello schermo', led.follow,
+      'Circa dieci colori al secondo, presi da tutta l’immagine: le bande nere sono ignorate.');
+    const brightness = select(sec, 'Luminosità mentre guardi', percentOptions(10), String(led.brightness));
+    const ambient = select(sec, 'Luce d’ambiente a TV spenta', LED_AMBIENT, led.ambient);
+    const ambientBrightness = select(sec, 'Luminosità della luce d’ambiente', percentOptions(10), String(led.ambientBrightness));
+    const tryRow = node('div', 'settings-row');
+    tryRow.appendChild(node('span', '', 'Prova la luce d’ambiente'));
+    const tried = node('p', 'settings-hint', '');
+    const tryButton = button('Prova', async function () {
+      const rgb = ambientRgb(ambient.value, parseInt(ambientBrightness.value, 10) || 60);
+      if (!strip.value) { tried.textContent = 'Scegli prima una striscia.'; return; }
+      if (!rgb) { tried.textContent = 'Con “Lascia l’ultimo colore” la striscia resta com’è.'; return; }
+      tryButton.disabled = true;
+      tried.textContent = 'Collegamento alla striscia…';
+      try {
+        await api.ledPreview(strip.value, rgb);
+        tried.textContent = follow.checked
+          ? 'Colore inviato: resta per qualche secondo.'
+          : 'Colore inviato: resta acceso. Il Bluetooth della TV si riavvia per lasciare la striscia all’app del telefono.';
+      } catch (err) {
+        tried.textContent = 'Non riuscito: ' + (err && err.message ? err.message : err);
+      } finally {
+        tryButton.disabled = false;
+      }
+    });
+    tryRow.appendChild(tryButton);
+    sec.appendChild(tryRow);
+    sec.appendChild(tried);
+    return {strip: strip, follow: follow, brightness: brightness, ambient: ambient, ambientBrightness: ambientBrightness};
   }
 
   function render(status) {
@@ -290,7 +431,7 @@ export function mountTvToolsSettings(panel, api) {
       return;
     }
     const conf = status.conf || {};
-    const controls = {preload: {}, settings: {}, services: {}, memory: null, keys: {}, consent: {}, powerOffAt: null, cinemaFirst: null};
+    const controls = {preload: {}, settings: {}, services: {}, memory: null, keys: {}, consent: {}, powerOffAt: null, cinemaFirst: null, led: null};
 
     if (status.memorySupported) {
       const mem = section('Memoria', 'Con poca memoria webOS chiude le app aperte quando ne apri un’altra. Così Cinema riparte da zero a ogni tasto Home e la musica di Bloomee si ferma.');
@@ -318,6 +459,10 @@ export function mountTvToolsSettings(panel, api) {
 
     const first = section('Accensione', 'All’accensione la TV apre Cinema da sola, come prima app, invece della TV o dell’ultimo ingresso: dopo il logo di LG compare Cinema. Canali e ingressi si aprono come prima.');
     controls.cinemaFirst = toggle(first, 'Apri Cinema all’accensione', conf.cinemaFirst === true, '');
+
+    if (status.ledStrip && status.ledStrip.supported && api.ledScan) {
+      controls.led = ledSection(Object.assign({}, LED_DEFAULT, conf.ledStrip || {}));
+    }
 
     let blockUpdates = null;
     if (typeof status.blockUpdates === 'boolean' && api.blockUpdates) {
@@ -457,7 +602,8 @@ export function mountTvToolsSettings(panel, api) {
       reset.disabled = true;
       state.textContent = 'Ripristino in corso…';
       try {
-        await api.apply({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: [], remoteKeys: {}, powerOffAt: null, cinemaFirst: false});
+        await api.apply({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: [], remoteKeys: {}, powerOffAt: null, cinemaFirst: false,
+          ledStrip: Object.assign({}, LED_DEFAULT, status.conf && status.conf.ledStrip, {follow: false})});
         state.textContent = 'Tutto riportato alle impostazioni di LG.';
         refresh();
       } catch (err) {

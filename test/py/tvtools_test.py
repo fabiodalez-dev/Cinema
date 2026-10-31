@@ -41,7 +41,8 @@ class Conf(unittest.TestCase):
             self.assertEqual(c['preloadOff'], ['amazon'])
             self.assertEqual(c['keepInMemory'], ['org.bloomee.webos'])
             os.remove(tv.CONF)
-            self.assertEqual(tv.load_conf(), {'preloadOff': [], 'settingsOff': [], 'servicesOff': [], 'keepInMemory': [], 'remoteKeys': {}, 'powerOffAt': None, 'cinemaFirst': False})
+            self.assertEqual(tv.load_conf(), {'preloadOff': [], 'settingsOff': [], 'servicesOff': [], 'keepInMemory': [], 'remoteKeys': {}, 'powerOffAt': None, 'cinemaFirst': False,
+                                          'ledStrip': {'address': None, 'name': '', 'follow': False, 'brightness': 100, 'ambient': 'warm', 'ambientBrightness': 60}})
         finally:
             tv.CONF = old
 

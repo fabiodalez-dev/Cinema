@@ -1305,7 +1305,8 @@ export function tvToolsStatus() {
 export async function tvToolsApply(conf) {
   const any = ['preloadOff', 'settingsOff', 'servicesOff', 'keepInMemory'].some(function (k) {
     return conf[k] && conf[k].length;
-  }) || Object.keys(conf.remoteKeys || {}).length > 0 || !!conf.powerOffAt || conf.cinemaFirst === true;
+  }) || Object.keys(conf.remoteKeys || {}).length > 0 || !!conf.powerOffAt || conf.cinemaFirst === true ||
+    !!(conf.ledStrip && conf.ledStrip.follow);
   await rootScriptOutput(execRoot('mkdir -p /var/lib/launch-home-cinema && chmod 700 /var/lib/launch-home-cinema && echo ok', 8000));
   await writeFileAsRoot(TVTOOLS_CONF, JSON.stringify(conf));
   await rootScriptOutput(execRoot('chmod 600 ' + shQuote(TVTOOLS_CONF) + ' && echo ok', 8000));
@@ -1324,6 +1325,8 @@ export function tvToolsRefresh() {
   const cmd = '[ -f ' + shQuote(TVTOOLS_ROOT_COPY) + ' ] || { echo absent; exit 0; }; ' +
     // A changed daemon, or a check script not yet installed (0.2.0), is put in place.
     '{ cmp -s ' + shQuote(TVTOOLS_APP) + ' ' + shQuote(TVTOOLS_ROOT_COPY) + ' && cmp -s ' +
+    shQuote(HOME_WATCHER_APP_DIR + '/ambilight.py') + ' ' +
+    shQuote('/var/lib/launch-home-cinema/tvtools/ambilight.py') + ' && cmp -s ' +
     shQuote(HOME_WATCHER_APP_DIR + '/failsafe-check.sh') + ' ' +
     shQuote('/var/lib/launch-home-cinema/tvtools/failsafe-check.sh') + ' && cmp -s ' +
     shQuote(HOME_WATCHER_APP_DIR + '/hbchannel-watchdog.sh') + ' ' +
@@ -1407,6 +1410,37 @@ export function setBlockUpdates(on) {
       if (res.blockUpdates !== undefined && res.blockUpdates !== !!on) throw new Error('non applicato');
       return res;
     });
+}
+
+// ---- Settings -> TV -> Luci LED: scripts/ambilight.py ----
+const AMBILIGHT_APP = HOME_WATCHER_APP_DIR + '/ambilight.py';
+const AMBILIGHT_ROOT_COPY = '/var/lib/launch-home-cinema/tvtools/ambilight.py';
+
+function ambilightCommand(args, timeoutMs) {
+  const cmd = 'PY=$(command -v python3 || command -v python); [ -n "$PY" ] || { echo no-python; exit 0; }; F=' +
+    shQuote(AMBILIGHT_ROOT_COPY) + '; [ -f "$F" ] || F=' + shQuote(AMBILIGHT_APP) + '; "$PY" "$F" ' + args;
+  return execRootLong(cmd, timeoutMs).then(function (res) {
+    const out = readExecStdout(res);
+    if (!out || out.indexOf('no-python') === 0) throw new Error('Python non disponibile');
+    const start = out.search(/[[{]/);
+    if (start < 0) throw new Error(out.split('\n')[0] || 'nessuna risposta');
+    return JSON.parse(out.slice(start));
+  });
+}
+
+/** LED strips in range (Bluetooth LE, about 8 s): [{address, name, rssi}]. */
+export function ledStripScan() {
+  return ambilightCommand('scan 8', 40000);
+}
+
+/** Show a colour on a strip for a few seconds (Settings' Prova). */
+export function ledStripPreview(address, rgb) {
+  if (!/^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i.test(address || '')) return Promise.reject(new Error('striscia non valida'));
+  const values = (rgb || []).slice(0, 3).map(function (v) { return Math.max(0, Math.min(255, Math.round(+v || 0))); });
+  return ambilightCommand('preview ' + address.toLowerCase() + ' ' + values.join(' '), 20000).then(function (r) {
+    if (!r.ok) throw new Error(r.error || 'non riuscito');
+    return r;
+  });
 }
 
 /** Switch one LG data agreement flag on or off (see tvtools.py set_consent). */
