@@ -620,7 +620,10 @@ class Ambilight(object):
         s = self.strip or Strip(addr)
         self.strip = s
         ok = s.connect()
-        if not ok and stale_link(addr):
+        # A link left behind ("Already connected"), or LG's service hung
+        # (every call answers "Message status unknown"): only a restart of
+        # the service clears either.
+        if not ok and ('status unknown' in (s.reason or '').lower() or stale_link(addr)):
             reset_bluetooth()
             ok = s.connect()
         if not ok:

@@ -263,6 +263,20 @@ class Loop(unittest.TestCase):
         self.assertGreater(len(set(blues)), 8)     # many small writes, not one jump
         self.assertGreater(blues[-1], 200)
 
+    def test_a_hung_bluetooth_service_is_restarted(self):
+        tries = []
+
+        class Hung(FakeStrip):
+            def connect(self):
+                tries.append(1)
+                self.connected = len(tries) > 1
+                self.reason = '' if self.connected else 'Message status unknown.'
+                return self.connected
+        amb.Strip = Hung
+        self.a.step()
+        self.assertEqual(self.resets, [1])
+        self.assertEqual(self.a.mode, 'follow')
+
     def test_a_stale_link_is_cleared_by_restarting_bluetooth(self):
         tries = []
 
