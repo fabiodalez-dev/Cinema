@@ -165,7 +165,52 @@ def load_conf():
         'remoteKeys': clean_keys(c.get('remoteKeys')),
         'powerOffAt': clean_time(c.get('powerOffAt')),
         'cinemaFirst': c.get('cinemaFirst') is True,
+        'ledStrip': led_conf(c.get('ledStrip')),
     }
+
+
+# ---- the LED strip behind the TV -------------------------------------------------
+# scripts/ambilight.py, a process of its own: it holds the strip's Bluetooth
+# connection (which LG's service cannot drop without a restart), so it must
+# not stop each time this daemon restarts. It reads tvtools.json by itself
+# and exits when "follow" is switched off; this only starts it.
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+AMBILIGHT_PID = os.path.join(RUN, 'ambilight.pid')
+
+
+def ambilight_module():
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    import ambilight
+    return ambilight
+
+
+def led_conf(raw):
+    try:
+        return ambilight_module().clean_conf(raw)
+    except Exception:
+        return None
+
+
+def ensure_ambilight(conf):
+    led = conf.get('ledStrip') or {}
+    if not led.get('follow'):
+        return False
+    try:
+        if ambilight_module().running():
+            return True
+    except Exception as e:
+        log('LED strip: %s' % e)
+        return False
+    script = os.path.join(HERE, 'ambilight.py')
+    if not os.path.isfile(script):
+        return False
+    subprocess.Popen([sys.executable or 'python', script, 'daemon'], stdin=open(os.devnull),
+                     stdout=open(os.devnull, 'w'), stderr=open(os.devnull, 'w'), close_fds=True,
+                     preexec_fn=os.setsid)
+    log('LED strip: following the screen')
+    return True
 
 
 # ---- apps kept loaded -------------------------------------------------------
@@ -894,7 +939,9 @@ def power_off_loop():
     while True:
         try:
             check_uninstalled()
-            at = load_conf()['powerOffAt']
+            conf = load_conf()
+            ensure_ambilight(conf)
+            at = conf['powerOffAt']
             now = time.localtime()
             action = None
             up = uptime_seconds()
@@ -1125,6 +1172,8 @@ def self_uninstall():
         except OSError:
             pass
     kill_pidfile(WATCHDOG_PID, 'hbchannel-watchdog')
+    # The strip gets its room light and is let go (the process does it on TERM).
+    kill_pidfile(AMBILIGHT_PID, 'ambilight')
     luna('luna://com.webos.service.activitymanager/cancel',
          {'activityName': 'org.webosbrew.lounge.launcher.failsafe-check'})
     import shutil
@@ -1287,6 +1336,7 @@ def apply_all(boot=False):
     apply_services(conf, state)
     apply_keys(conf)
     apply_first_app(conf)
+    ensure_ambilight(conf)
     log('applied')
 
 
@@ -1321,7 +1371,15 @@ def status():
         'services': dict((s, service_active(s)) for s in SERVICES if service_exists(s)),
         'daemon': daemon_running(),
         'memoryOverride': os.path.exists(MEM_MARK),
+        'ledStrip': {'supported': led_conf(None) is not None, 'running': bool(ambilight_pid())},
     }))
+
+
+def ambilight_pid():
+    try:
+        return ambilight_module().running()
+    except Exception:
+        return None
 
 
 def daemon_running():

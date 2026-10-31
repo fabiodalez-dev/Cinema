@@ -129,7 +129,7 @@ describe('TV tools settings', () => {
     const panel = await mounted(status(), apply);
     [...panel.querySelectorAll('button')].find((b) => /Ripristina/.test(b.textContent)).click();
     await new Promise((r) => setTimeout(r, 0));
-    expect(apply.mock.calls[0][0]).toEqual({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: [], remoteKeys: {}, powerOffAt: null, cinemaFirst: false});
+    expect(apply.mock.calls[0][0]).toEqual({preloadOff: [], settingsOff: [], servicesOff: [], keepInMemory: [], remoteKeys: {}, powerOffAt: null, cinemaFirst: false, ledStrip: {address: null, name: '', follow: false, brightness: 100, ambient: 'warm', ambientBrightness: 60}});
   });
 
   it('Homebrew Channel update block: shown when known, saved on its own', async () => {
@@ -160,7 +160,7 @@ describe('TV tools settings', () => {
 
   it('draft keeps the stored choice for rows not shown', () => {
     expect(tvToolsDraft(status(), {preload: {}, settings: {}, services: {}, memory: null}))
-      .toEqual({preloadOff: ['vudu', 'amazon'], settingsOff: ['adCookie'], servicesOff: ['contentminer'], keepInMemory: ['org.webosbrew.lounge.launcher'], remoteKeys: {}, powerOffAt: null, cinemaFirst: false});
+      .toEqual({preloadOff: ['vudu', 'amazon'], settingsOff: ['adCookie'], servicesOff: ['contentminer'], keepInMemory: ['org.webosbrew.lounge.launcher'], remoteKeys: {}, powerOffAt: null, cinemaFirst: false, ledStrip: {address: null, name: '', follow: false, brightness: 100, ambient: 'warm', ambientBrightness: 60}});
   });
 });
 
@@ -199,5 +199,58 @@ describe('TV tools: Cinema at power-on', () => {
     expect(tvToolsDraft({conf: {cinemaFirst: true}}, Object.assign({}, base, {cinemaFirst: null})).cinemaFirst).toBe(true);
     expect(tvToolsDraft({conf: {}}, Object.assign({}, base, {cinemaFirst: null})).cinemaFirst).toBe(false);
     expect(tvToolsDraft({conf: {cinemaFirst: true}}, Object.assign({}, base, {cinemaFirst: {checked: false}})).cinemaFirst).toBe(false);
+  });
+});
+
+
+describe('TV tools: LED strip', () => {
+  async function ledPanel(conf, api) {
+    document.body.innerHTML = '<div id="p"><div class="settings-tab-pane" data-tab="tv"></div></div>';
+    const panel = document.getElementById('p');
+    const st = status({conf: Object.assign({}, status().conf, {ledStrip: conf}), ledStrip: {supported: true, running: false}});
+    const apply = vi.fn(async () => true);
+    mountTvToolsSettings(panel, Object.assign({status: () => Promise.resolve(st), apply}, api));
+    await new Promise((r) => setTimeout(r, 0));
+    const row = (label) => [...panel.querySelectorAll('.settings-row')].find((r) => r.querySelector('span') && r.querySelector('span').textContent === label);
+    return {panel, apply, row};
+  }
+
+  it('is not shown without the strip support or the scan call', async () => {
+    const panel = await mounted(status());
+    expect(panel.textContent).not.toContain('Luci LED');
+  });
+
+  it('scan lists the strips, the chosen one is saved with the settings', async () => {
+    const ledScan = vi.fn(async () => [{address: 'be:32:03:63:ba:78', name: 'ELK-BLEDOB', rssi: -51}]);
+    const {panel, apply, row} = await ledPanel(null, {ledScan, ledPreview: vi.fn()});
+    expect(panel.textContent).toContain('Luci LED dietro la TV');
+    row('Strisce nelle vicinanze').querySelector('button').click();
+    await new Promise((r) => setTimeout(r, 0));
+    const strip = row('Striscia').querySelector('select');
+    expect(strip.value).toBe('be:32:03:63:ba:78');
+    expect(strip.selectedOptions[0].textContent).toBe('ELK-BLEDOB · BE:32:03:63:BA:78 · segnale -51 dBm');
+    row('I LED seguono i colori dello schermo').querySelector('input').checked = true;
+    row('Luce d’ambiente a TV spenta').querySelector('select').value = 'purple';
+    row('Luminosità della luce d’ambiente').querySelector('select').value = '40';
+    await panel.__tvToolsSave();
+    expect(apply.mock.calls[0][0].ledStrip).toEqual({address: 'be:32:03:63:ba:78', name: 'ELK-BLEDOB', follow: true,
+      brightness: 100, ambient: 'purple', ambientBrightness: 40});
+  });
+
+  it('Prova sends the room light at its brightness to the strip on screen', async () => {
+    const ledPreview = vi.fn(async () => ({ok: true}));
+    const {row} = await ledPanel({address: 'be:32:03:63:ba:78', name: 'ELK-BLEDOB', follow: false, brightness: 80,
+      ambient: 'warm', ambientBrightness: 50}, {ledScan: vi.fn(), ledPreview});
+    row('Prova la luce d’ambiente').querySelector('button').click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ledPreview).toHaveBeenCalledWith('be:32:03:63:ba:78', [128, 60, 15]);
+  });
+
+  it('no strip means no following, whatever the switch says', async () => {
+    const {ledDraft} = await import('../src/js/tv-tools-settings.js');
+    const sel = (v) => ({value: v, selectedOptions: [{dataset: {name: ''}}]});
+    const out = ledDraft(null, {strip: sel(''), follow: {checked: true}, brightness: {value: '70'}, ambient: {value: 'keep'},
+      ambientBrightness: {value: '30'}});
+    expect(out).toEqual({address: null, name: '', follow: false, brightness: 70, ambient: 'keep', ambientBrightness: 30});
   });
 });

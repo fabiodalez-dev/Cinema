@@ -39,6 +39,8 @@ import {
   tvToolsConsent,
   homebrewConfiguration,
   setBlockUpdates,
+  ledStripScan,
+  ledStripPreview,
   getTvCurrentChannelId,
   tuneTvChannel,
   getTvProgramme
@@ -278,7 +280,7 @@ const settings = createSettingsPanel(elements.settingsPanel, getBaseConfig, {
   onRendered: function () {
     if (cinematic) cinematic.mountSettings(elements.settingsPanel);
     mountTvToolsSettings(elements.settingsPanel, {status: tvToolsStatusWithUpdates, apply: tvToolsApply, consent: tvToolsConsent,
-      blockUpdates: setBlockUpdates,
+      blockUpdates: setBlockUpdates, ledScan: ledStripScan, ledPreview: ledStripPreview,
       updates: {check: appUpdatesCheck, install: appUpdateInstall, progress: appUpdateProgress}});
     // Land focus inside the panel so wheel / arrows navigate options immediately.
     if (focus && typeof focus.focusWithin === 'function') {

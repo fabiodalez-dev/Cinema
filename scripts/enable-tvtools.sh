@@ -15,7 +15,13 @@ PY=$(command -v python3 || command -v python || true)
 mkdir -p /var/lib/launch-home-cinema "$D"
 chown root:root /var/lib/launch-home-cinema "$D"
 chmod 700 /var/lib/launch-home-cinema "$D"
-for f in tvtools.py failsafe-check.sh hbchannel-watchdog.sh; do
+# A new ambilight.py: the running one is stopped (it gives the strip its room
+# light and lets it go); the daemon starts the new one within 20 s.
+if [ -f "$APP_DIR/ambilight.py" ] && ! cmp -s "$APP_DIR/ambilight.py" "$D/ambilight.py"; then
+  APID=$(cat /run/cinema-tvtools/ambilight.pid 2>/dev/null || true)
+  if [ -n "$APID" ] && grep -q ambilight "/proc/$APID/cmdline" 2>/dev/null; then kill "$APID" 2>/dev/null || true; fi
+fi
+for f in tvtools.py ambilight.py failsafe-check.sh hbchannel-watchdog.sh; do
   [ -f "$APP_DIR/$f" ] || continue
   cp "$APP_DIR/$f" "$D/$f.part"
   chmod 600 "$D/$f.part"
