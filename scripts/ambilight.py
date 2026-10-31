@@ -42,7 +42,6 @@ CAPTURE = 'luna://com.webos.service.capture/executeOneShot'
 SERVICE = '0000fff0-0000-1000-8000-00805f9b34fb'
 WRITE_CHAR = '0000fff3-0000-1000-8000-00805f9b34fb'
 NAME_PREFIXES = ('ELK-', 'MELK', 'ELK~', 'LEDBLE', 'LED LIGHT STRIP', 'XSL-')
-FRAME_PATH = '/tmp/cinema-ambilight.bmp'
 WIDTH, HEIGHT = 240, 136
 STEP = 8                 # every 8th pixel in both directions: 30 x 17 samples
 DARK = 24                # a pixel whose brightest channel is below this is black
@@ -426,6 +425,10 @@ RUN = os.environ.get('TVTOOLS_RUN', '/run/cinema-tvtools')
 PIDFILE = os.path.join(RUN, 'ambilight.pid')
 LOGFILE = os.environ.get('AMBILIGHT_LOG') or os.path.join(RUN, 'ambilight.log')
 PREVIEW = os.path.join(RUN, 'ambilight-preview.json')
+# The capture service runs as root and follows the path it is given: the frame
+# goes in this root-only folder, never at a fixed name under /tmp, where any
+# app could put a symlink to a file to overwrite.
+FRAME_PATH = os.path.join(RUN, 'ambilight-frame.bmp')
 PREVIEW_SECONDS = 6
 ADDRESS_RE = __import__('re').compile(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$')
 ON = 'Active'
@@ -479,6 +482,9 @@ def ambient_color(conf):
 
 
 def capture():
+    if not os.path.isdir(RUN):
+        os.makedirs(RUN)
+        os.chmod(RUN, 0o700)
     try:
         os.remove(FRAME_PATH)
     except OSError:
