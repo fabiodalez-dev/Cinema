@@ -462,10 +462,25 @@ def stale_link(address):
     return r.get('connected') is True
 
 
-def reset_bluetooth():
+_last_reset = [0.0]
+
+
+def reset_bluetooth(now=time.time):
+    """At most once every two minutes: while the service stays hung, each
+    restart would drop the remote again. /sbin by full path: the process is
+    started with no PATH, and a bare "restart" was not found."""
+    if _last_reset[0] and now() - _last_reset[0] < 120:
+        return False
+    _last_reset[0] = now()
+    try:
+        subprocess.call(['/sbin/restart', 'webos-bluetooth-service'],
+                        stdout=open(os.devnull, 'w'), stderr=subprocess.STDOUT)
+    except OSError as e:
+        log('ambilight: could not restart Bluetooth (%s)' % e)
+        return False
     log('ambilight: Bluetooth service restarted to clear a stale connection')
-    subprocess.call(['restart', 'webos-bluetooth-service'])
     time.sleep(8)
+    return True
 
 
 # ---- the loop -----------------------------------------------------------------
@@ -797,6 +812,8 @@ def running():
 def daemon():
     if running():
         return 0
+    # Started from tvtools.py with an empty environment: no PATH, no /sbin.
+    os.environ.setdefault('PATH', '/usr/sbin:/usr/bin:/sbin:/bin')
     # Two starts close together (tvtools.py applies, then checks): the lock
     # lets one through, held until this process ends.
     import fcntl
@@ -840,6 +857,10 @@ def daemon():
     log('ambilight: start, strip %s' % (a.conf['address'] or 'none'))
     try:
         a.run()
+    except Exception:
+        import traceback
+        log('ambilight: crashed: %s' % traceback.format_exc().strip().replace('\n', ' | '))
+        raise
     finally:
         power.close()
         try:

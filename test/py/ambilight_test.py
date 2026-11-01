@@ -277,6 +277,36 @@ class Loop(unittest.TestCase):
         self.assertEqual(self.resets, [1])
         self.assertEqual(self.a.mode, 'follow')
 
+    def test_a_hung_service_is_not_restarted_again_and_again(self):
+        calls = []
+        real_call, real_sleep = amb.subprocess.call, amb.time.sleep
+        amb.subprocess.call = lambda *a, **k: calls.append(a[0]) or 0
+        amb.time.sleep = lambda s: None
+        clock = [1000.0]
+        try:
+            amb._last_reset[0] = 0.0
+            self.assertTrue(self.saved[2](now=lambda: clock[0]))
+            clock[0] += 30
+            self.assertFalse(self.saved[2](now=lambda: clock[0]))
+            clock[0] += 120
+            self.assertTrue(self.saved[2](now=lambda: clock[0]))
+        finally:
+            amb.subprocess.call, amb.time.sleep = real_call, real_sleep
+            amb._last_reset[0] = 0.0
+        self.assertEqual(calls, [['/sbin/restart', 'webos-bluetooth-service']] * 2)
+
+    def test_a_missing_restart_command_does_not_kill_the_process(self):
+        def missing(*a, **k):
+            raise OSError(2, 'No such file or directory')
+        real_call = amb.subprocess.call
+        amb.subprocess.call = missing
+        try:
+            amb._last_reset[0] = 0.0
+            self.assertFalse(self.saved[2]())
+        finally:
+            amb.subprocess.call = real_call
+            amb._last_reset[0] = 0.0
+
     def test_a_stale_link_is_cleared_by_restarting_bluetooth(self):
         tries = []
 
