@@ -333,5 +333,49 @@ class Loop(unittest.TestCase):
         self.assertEqual(self.a.mode, 'follow')
 
 
+
+class LunaPipeTest(unittest.TestCase):
+    """The long-lived Node client, with a stand-in for webOS's bus library."""
+
+    def setUp(self):
+        import shutil, tempfile
+        if not shutil.which('node'):
+            self.skipTest('no node')
+        self.dir = tempfile.mkdtemp()
+        self.saved = (amb.RUN, amb.PALMBUS)
+        amb.RUN = self.dir
+        fake = os.path.join(self.dir, 'palmbus.js')
+        with open(fake, 'w') as f:
+            f.write("exports.Handle = function () { this.call = function (uri, payload) {"
+                    " var l = {}; setTimeout(function () { l.response({payload: function () {"
+                    " return JSON.stringify({returnValue: true, uri: uri, echo: JSON.parse(payload)}); }}); }, 5);"
+                    " return {addListener: function (e, f) { l[e] = f; }, cancel: function () {}}; }; };")
+        amb.PALMBUS = [fake]
+
+    def tearDown(self):
+        amb.RUN, amb.PALMBUS = self.saved
+
+    def test_calls_share_one_process_and_get_their_own_reply(self):
+        pipe = amb.LunaPipe()
+        a = pipe.call('luna://x/a', {'n': 1}, 5)
+        first = pipe.p.pid
+        b = pipe.call('luna://x/b', {'n': 2}, 5)
+        self.assertEqual((a['uri'], a['echo']), ('luna://x/a', {'n': 1}))
+        self.assertEqual((b['uri'], b['echo']), ('luna://x/b', {'n': 2}))
+        self.assertEqual(pipe.p.pid, first)
+        pipe.p.kill()
+
+    def test_without_node_the_calls_fall_back_to_luna_send(self):
+        pipe = amb.LunaPipe()
+        real = amb.subprocess.Popen
+
+        def missing(*a, **k):
+            raise OSError(2, 'No such file or directory')
+        amb.subprocess.Popen = missing
+        try:
+            self.assertIsNone(pipe.call('luna://x/a', {}, 1))
+        finally:
+            amb.subprocess.Popen = real
+
 if __name__ == '__main__':
     unittest.main()

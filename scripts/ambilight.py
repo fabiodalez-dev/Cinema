@@ -297,9 +297,107 @@ def changed(prev, cur, threshold=2):
 
 # ---- luna -------------------------------------------------------------------
 
+# LG's Bluetooth service never lets go of something for each new luna-send
+# client that talks to it: at a few colours a second it reached its limit of
+# 1024 open files in about five minutes and hung (faultmanager logged it 35
+# times in one evening). So the calls go through one long-lived client, a
+# small Node.js process using the bus library webOS ships; luna-send only if
+# that is not available.
+PALMBUS = [p for p in ('/usr/lib/nodejs/palmbus.js', '/usr/palm/nodejs/palmbus.js') if os.path.exists(p)]
+PIPE_JS = r"""
+var pb = require(process.argv[2]);
+var h = new pb.Handle('', false);
+require('readline').createInterface({input: process.stdin}).on('line', function (line) {
+  var m;
+  try { m = JSON.parse(line); } catch (e) { return; }
+  var c = h.call(m.uri, JSON.stringify(m.payload)), done = false;
+  c.addListener('response', function (r) {
+    if (done) return;
+    done = true;
+    var reply;
+    try { reply = JSON.parse(r.payload()); } catch (e) { reply = {}; }
+    process.stdout.write(JSON.stringify({id: m.id, reply: reply}) + '\n');
+    c.cancel();
+  });
+}).on('close', function () { process.exit(0); });
+"""
+
+
+class LunaPipe(object):
+    """One luna client for the whole process: requests go in on stdin, one
+    JSON line per reply comes out."""
+
+    def __init__(self):
+        self.p = None
+        self.lock = threading.Lock()
+        self.waiting = {}
+        self.next_id = 0
+        self.broken = False
+
+    def _start(self):
+        path = os.path.join(RUN, 'luna-pipe.js')
+        with open_private(path, 'w') as f:
+            f.write(PIPE_JS)
+        self.p = subprocess.Popen(['node', path, PALMBUS[0]], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=open(os.devnull, 'w'))
+        t = threading.Thread(target=self._read, args=(self.p,))
+        t.daemon = True
+        t.start()
+
+    def _read(self, p):
+        for line in iter(p.stdout.readline, b''):
+            try:
+                msg = json.loads(line.decode('utf-8', 'replace'))
+            except ValueError:
+                continue
+            with self.lock:
+                slot = self.waiting.pop(msg.get('id'), None)
+            if slot:
+                slot[1].append(msg.get('reply') or {})
+                slot[0].set()
+
+    def call(self, uri, payload, timeout):
+        """The reply, or None when the pipe cannot be used."""
+        with self.lock:
+            if self.broken:
+                return None
+            if self.p is None or self.p.poll() is not None:
+                try:
+                    self._start()
+                except (OSError, IOError) as e:
+                    self.broken = True
+                    log('ambilight: no luna pipe (%s), using luna-send' % e)
+                    return None
+            self.next_id += 1
+            slot = (threading.Event(), [])
+            self.waiting[self.next_id] = slot
+            req = json.dumps({'id': self.next_id, 'uri': uri, 'payload': payload}) + '\n'
+            try:
+                self.p.stdin.write(req.encode('utf-8'))
+                self.p.stdin.flush()
+            except (OSError, IOError):
+                self.waiting.pop(self.next_id, None)
+                self.p = None
+                return None
+        slot[0].wait(timeout)
+        return slot[1][0] if slot[1] else {}
+
+
+PIPE = LunaPipe() if PALMBUS else None
+
+
 def luna(uri, payload, timeout=8.0):
-    """One reply from a luna call. luna-send stays silent when its stdin is at
-    end of file, so stdin is a pipe kept open until the reply is read."""
+    """One reply from a luna call."""
+    if PIPE is not None:
+        r = PIPE.call(uri, payload, timeout)
+        if r is not None:
+            return r
+    return luna_send(uri, payload, timeout)
+
+
+def luna_send(uri, payload, timeout=8.0):
+    """luna-send stays silent when its stdin is at end of file, so stdin is
+    a pipe kept open until the reply is read."""
     p = subprocess.Popen(['luna-send', '-i', '-n', '1', uri, json.dumps(payload)],
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     timer = threading.Timer(timeout, p.kill)
