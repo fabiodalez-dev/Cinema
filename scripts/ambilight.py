@@ -30,6 +30,7 @@ Runs on the TV's Python 2.7 and on Python 3 for the tests.
 from __future__ import print_function
 
 import json
+import math
 import os
 import struct
 import subprocess
@@ -45,7 +46,7 @@ NAME_PREFIXES = ('ELK-', 'MELK', 'ELK~', 'LEDBLE', 'LED LIGHT STRIP', 'XSL-')
 WIDTH, HEIGHT = 240, 136
 STEP = 8                 # every 8th pixel in both directions: 30 x 17 samples
 DARK = 24                # a pixel whose brightest channel is below this is black
-INTERVAL = 0.1           # seconds per frame: about 10 colours a second
+TICK = 0.05              # the fade: a colour every 50 ms, plus the write itself
 MIN_GAP = 0.06           # never two writes closer than this (the strip drops them)
 
 
@@ -144,9 +145,10 @@ def screen_color(w, h, rows, step=STEP):
 
     Black (letterbox bars, dark scenes) is left out. The pixels are grouped by
     hue, each counted by how coloured and how bright it is, and the strongest
-    group wins: a red car in a grey street gives red, not the muddy average.
-    A scene with little colour gives its own average (white-ish, warm or
-    cold). A screen almost all black gives a dim version of what is there."""
+    group is mixed into the average as much as the screen is colourful: a red
+    car in a grey street tints the light red, a red sunset makes it red. A
+    scene with little colour gives its own average (white-ish, warm or cold).
+    A screen almost all black gives a dim version of what is there."""
     bins = {}
     total = [0, 0, 0, 0]
     lit = 0
@@ -190,47 +192,104 @@ def screen_color(w, h, rows, step=STEP):
         colorful = sum(a[3] for a in bins.values()) / (255.0 * total[3])
         if colorful > 0.05:
             col = (best[0] / best[3], best[1] / best[3], best[2] / best[3])
-            # Keep the hue of the winner at the brightness of the scene.
+            # The hue of the winner at the brightness of the scene, mixed with
+            # the scene itself: only a really colourful screen gets its pure
+            # colour, a face on a beige wall stays a soft warm light.
             bright = max(avg) / float(max(col) or 1)
             col = tuple(c * max(bright, 0.6) for c in col)
-            return tuple(c * level for c in col)
+            m = min(0.7, colorful * 1.5)
+            mixed = tuple(a + (c - a) * m for a, c in zip(avg, col))
+            return tuple(c * level for c in mixed)
     return tuple(c * level for c in avg)
 
 
-def boost(rgb, saturation=1.15, gamma=1.6):
-    """Screens look less saturated on a wall, and LEDs are brightest at the
-    bottom of their range: colour pushed out from grey, then a gamma curve so
-    that a dim scene gives a dim light and not half brightness."""
-    r, g, b = rgb
+# The strip's own white is cold: its green and blue LEDs outshine the red.
+WHITE_BALANCE = (1.0, 0.85, 0.7)
+
+
+def boost(rgb, saturation=1.0, gamma=0.8, mix=2.0):
+    """From the screen to the LEDs. A screen value is not light: 50 out of
+    255 green is about 3% of the green light, but the strip turns 50 into
+    20% of its green, and an orange (255, 50, 0) shows as a pale yellow. So
+    the proportions between the channels go through a curve (mix), the
+    strip's cold white is corrected, and the brightness of the scene is
+    lifted a little (gamma) so that a mid scene still lights the room."""
+    r, g, b = (max(0.0, min(255.0, float(c))) for c in rgb)
+    mx = max(r, g, b)
+    if mx <= 0:
+        return (0.0, 0.0, 0.0)
     grey = (r + g + b) / 3.0
-    out = []
-    for c in (r, g, b):
-        c = grey + (c - grey) * saturation
-        c = max(0.0, min(255.0, c)) / 255.0
-        out.append(255.0 * (c ** gamma))
-    return tuple(out)
+    col = [max(0.0, grey + (c - grey) * saturation) for c in (r, g, b)]
+    top = max(col) or 1.0
+    col = [(c / top) ** mix * w for c, w in zip(col, WHITE_BALANCE)]
+    scale = 255.0 * (mx / 255.0) ** gamma / (max(col) or 1)
+    return tuple(min(255.0, c * scale) for c in col)
 
 
 class Smoother(object):
-    """Follows the target colour a step at a time, faster on a big change (a
-    cut) than on a small one, so the light neither flickers nor drags."""
+    """Fades towards the target colour over time: about `slow` seconds on a
+    small change, `fast` on a big one (a cut), so the light neither jumps
+    nor drags. Called many times between two captures."""
 
-    def __init__(self, slow=0.25, fast=0.6):
+    def __init__(self, slow=0.7, fast=0.25):
         self.slow = slow
         self.fast = fast
         self.value = None
 
-    def step(self, target):
+    def step(self, target, dt):
         if self.value is None:
             self.value = tuple(float(c) for c in target)
             return self.value
         dist = max(abs(a - b) for a, b in zip(self.value, target))
-        k = self.fast if dist > 90 else self.slow
+        k = 1.0 - math.exp(-max(0.0, dt) / (self.fast if dist > 90 else self.slow))
         self.value = tuple(a + (b - a) * k for a, b in zip(self.value, target))
         return self.value
 
 
-def changed(prev, cur, threshold=3):
+class Grabber(object):
+    """The screen, captured in a thread of its own. With a video playing a
+    capture takes about 0.45 s whatever its size, so the strip fades towards
+    the last capture instead of waiting for the next. The thread stops when
+    nobody asks for two seconds (TV off, strip released)."""
+
+    def __init__(self, threaded=True):
+        self.threaded = threaded
+        self.frame = None
+        self.seq = 0
+        self.misses = 0
+        self.wanted = 0.0
+        self.thread = None
+
+    def _grab(self):
+        f = capture()
+        if f is None:
+            self.misses += 1
+            return False
+        self.misses = 0
+        self.frame = f
+        self.seq += 1
+        return True
+
+    def _run(self):
+        while time.time() - self.wanted < 2:
+            if not self._grab():
+                time.sleep(0.2)
+        self.frame = None                     # old by the time it is asked again
+
+    def latest(self):
+        """(number of the capture, its pixels or None)."""
+        if not self.threaded:
+            self._grab()
+            return self.seq, self.frame
+        self.wanted = time.time()
+        if self.thread is None or not self.thread.is_alive():
+            self.thread = threading.Thread(target=self._run)
+            self.thread.daemon = True
+            self.thread.start()
+        return self.seq, self.frame
+
+
+def changed(prev, cur, threshold=2):
     if prev is None:
         return True
     return max(abs(int(round(a)) - int(round(b))) for a, b in zip(prev, cur)) >= threshold
@@ -238,9 +297,107 @@ def changed(prev, cur, threshold=3):
 
 # ---- luna -------------------------------------------------------------------
 
+# LG's Bluetooth service never lets go of something for each new luna-send
+# client that talks to it: at a few colours a second it reached its limit of
+# 1024 open files in about five minutes and hung (faultmanager logged it 35
+# times in one evening). So the calls go through one long-lived client, a
+# small Node.js process using the bus library webOS ships; luna-send only if
+# that is not available.
+PALMBUS = [p for p in ('/usr/lib/nodejs/palmbus.js', '/usr/palm/nodejs/palmbus.js') if os.path.exists(p)]
+PIPE_JS = r"""
+var pb = require(process.argv[2]);
+var h = new pb.Handle('', false);
+require('readline').createInterface({input: process.stdin}).on('line', function (line) {
+  var m;
+  try { m = JSON.parse(line); } catch (e) { return; }
+  var c = h.call(m.uri, JSON.stringify(m.payload)), done = false;
+  c.addListener('response', function (r) {
+    if (done) return;
+    done = true;
+    var reply;
+    try { reply = JSON.parse(r.payload()); } catch (e) { reply = {}; }
+    process.stdout.write(JSON.stringify({id: m.id, reply: reply}) + '\n');
+    c.cancel();
+  });
+}).on('close', function () { process.exit(0); });
+"""
+
+
+class LunaPipe(object):
+    """One luna client for the whole process: requests go in on stdin, one
+    JSON line per reply comes out."""
+
+    def __init__(self):
+        self.p = None
+        self.lock = threading.Lock()
+        self.waiting = {}
+        self.next_id = 0
+        self.broken = False
+
+    def _start(self):
+        path = os.path.join(RUN, 'luna-pipe.js')
+        with open_private(path, 'w') as f:
+            f.write(PIPE_JS)
+        self.p = subprocess.Popen(['node', path, PALMBUS[0]], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=open(os.devnull, 'w'))
+        t = threading.Thread(target=self._read, args=(self.p,))
+        t.daemon = True
+        t.start()
+
+    def _read(self, p):
+        for line in iter(p.stdout.readline, b''):
+            try:
+                msg = json.loads(line.decode('utf-8', 'replace'))
+            except ValueError:
+                continue
+            with self.lock:
+                slot = self.waiting.pop(msg.get('id'), None)
+            if slot:
+                slot[1].append(msg.get('reply') or {})
+                slot[0].set()
+
+    def call(self, uri, payload, timeout):
+        """The reply, or None when the pipe cannot be used."""
+        with self.lock:
+            if self.broken:
+                return None
+            if self.p is None or self.p.poll() is not None:
+                try:
+                    self._start()
+                except (OSError, IOError) as e:
+                    self.broken = True
+                    log('ambilight: no luna pipe (%s), using luna-send' % e)
+                    return None
+            self.next_id += 1
+            slot = (threading.Event(), [])
+            self.waiting[self.next_id] = slot
+            req = json.dumps({'id': self.next_id, 'uri': uri, 'payload': payload}) + '\n'
+            try:
+                self.p.stdin.write(req.encode('utf-8'))
+                self.p.stdin.flush()
+            except (OSError, IOError):
+                self.waiting.pop(self.next_id, None)
+                self.p = None
+                return None
+        slot[0].wait(timeout)
+        return slot[1][0] if slot[1] else {}
+
+
+PIPE = LunaPipe() if PALMBUS else None
+
+
 def luna(uri, payload, timeout=8.0):
-    """One reply from a luna call. luna-send stays silent when its stdin is at
-    end of file, so stdin is a pipe kept open until the reply is read."""
+    """One reply from a luna call."""
+    if PIPE is not None:
+        r = PIPE.call(uri, payload, timeout)
+        if r is not None:
+            return r
+    return luna_send(uri, payload, timeout)
+
+
+def luna_send(uri, payload, timeout=8.0):
+    """luna-send stays silent when its stdin is at end of file, so stdin is
+    a pipe kept open until the reply is read."""
     p = subprocess.Popen(['luna-send', '-i', '-n', '1', uri, json.dumps(payload)],
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     timer = threading.Timer(timeout, p.kill)
@@ -411,10 +568,25 @@ def stale_link(address):
     return r.get('connected') is True
 
 
-def reset_bluetooth():
+_last_reset = [0.0]
+
+
+def reset_bluetooth(now=time.time):
+    """At most once every two minutes: while the service stays hung, each
+    restart would drop the remote again. /sbin by full path: the process is
+    started with no PATH, and a bare "restart" was not found."""
+    if _last_reset[0] and now() - _last_reset[0] < 120:
+        return False
+    _last_reset[0] = now()
+    try:
+        subprocess.call(['/sbin/restart', 'webos-bluetooth-service'],
+                        stdout=open(os.devnull, 'w'), stderr=subprocess.STDOUT)
+    except OSError as e:
+        log('ambilight: could not restart Bluetooth (%s)' % e)
+        return False
     log('ambilight: Bluetooth service restarted to clear a stale connection')
-    subprocess.call(['restart', 'webos-bluetooth-service'])
     time.sleep(8)
+    return True
 
 
 # ---- the loop -----------------------------------------------------------------
@@ -423,7 +595,9 @@ ROOT = os.environ.get('TVTOOLS_ROOT', '/var/lib/launch-home-cinema')
 CONF = os.path.join(ROOT, 'tvtools.json')
 RUN = os.environ.get('TVTOOLS_RUN', '/run/cinema-tvtools')
 PIDFILE = os.path.join(RUN, 'ambilight.pid')
-LOGFILE = os.environ.get('AMBILIGHT_LOG') or os.path.join(RUN, 'ambilight.log')
+# On flash, next to tvtools.json: /run is emptied when the TV restarts, and
+# what went wrong before a restart is what is needed. Few lines a day.
+LOGFILE = os.environ.get('AMBILIGHT_LOG') or os.path.join(ROOT, 'ambilight.log')
 PREVIEW = os.path.join(RUN, 'ambilight-preview.json')
 # The capture service runs as root and follows the path it is given: the frame
 # goes in this root-only folder, never at a fixed name under /tmp, where any
@@ -526,7 +700,7 @@ class Ambilight(object):
     connection is kept while the TV is on, and settings are read again while
     running instead of restarting this process."""
 
-    def __init__(self, conf_source=None, power=lambda: ON, clock=time.time):
+    def __init__(self, conf_source=None, power=lambda: ON, clock=time.time, grabber=None):
         self.conf_source = conf_source or load_conf
         self.power = power
         self.clock = clock
@@ -534,11 +708,15 @@ class Ambilight(object):
         self.strip = None
         self.stopping = threading.Event()
         self.smooth = Smoother()
+        self.grabber = grabber or Grabber()
+        self.seen = None            # the capture the target comes from
+        self.target = None
+        self.last_tick = 0
+        self.unreadable = False
         self.sent = None
         self.mode = None            # 'follow', 'ambient' or 'preview': what the strip shows
         self.preview_until = 0
         self.preview_address = None
-        self.misses = 0
         self.retry_at = 0
         self.retries = 0
         self.lock = threading.RLock()
@@ -563,7 +741,10 @@ class Ambilight(object):
         s = self.strip or Strip(addr)
         self.strip = s
         ok = s.connect()
-        if not ok and stale_link(addr):
+        # A link left behind ("Already connected"), or LG's service hung
+        # (every call answers "Message status unknown"): only a restart of
+        # the service clears either.
+        if not ok and ('status unknown' in (s.reason or '').lower() or stale_link(addr)):
             reset_bluetooth()
             ok = s.connect()
         if not ok:
@@ -662,22 +843,30 @@ class Ambilight(object):
             if self.strip and self.strip.connected:
                 self.show_ambient()
             self.smooth = Smoother()
+            self.seen = self.target = None
             return 1.0
         s = self._strip()
         if s is None:
             return 1.0
         t0 = self.clock()
-        frame = capture()
-        if frame is None:
-            self.misses += 1
-            if self.misses == 20:
-                log('ambilight: the screen cannot be read (protected video?)')
-            return 0.5
-        self.misses = 0
-        color = scaled(self.smooth.step(boost(screen_color(*frame))), self.conf['brightness'])
+        seq, frame = self.grabber.latest()
+        if self.grabber.misses >= 20 and not self.unreadable:
+            self.unreadable = True
+            log('ambilight: the screen cannot be read (protected video?)')
+        if frame is not None:
+            self.unreadable = False
+            if seq != self.seen:
+                self.seen = seq
+                self.target = scaled(boost(screen_color(*frame)), self.conf['brightness'])
+        if self.target is None:
+            return 0.1
+        # Between two captures the strip keeps fading towards the last one.
+        dt = min(0.5, t0 - self.last_tick) if self.last_tick else TICK
+        self.last_tick = t0
+        color = self.smooth.step(self.target, dt)
         if self.mode != 'follow' or changed(self.sent, color) or self.clock() - s.last_write > 2:
             self.show(color, 'follow')
-        return max(0.0, INTERVAL - (self.clock() - t0))
+        return max(0.0, TICK - (self.clock() - t0))
 
     def run(self):
         try:
@@ -710,7 +899,7 @@ def file_log(msg):
             with open_private(LOGFILE, 'w') as f:
                 f.writelines(tail)
         with open_private(LOGFILE, 'a') as f:
-            f.write(time.strftime('%H:%M:%S ') + msg + '\n')
+            f.write(time.strftime('%d/%m %H:%M:%S ') + msg + '\n')
     except Exception:
         pass
 
@@ -729,6 +918,8 @@ def running():
 def daemon():
     if running():
         return 0
+    # Started from tvtools.py with an empty environment: no PATH, no /sbin.
+    os.environ.setdefault('PATH', '/usr/sbin:/usr/bin:/sbin:/bin')
     # Two starts close together (tvtools.py applies, then checks): the lock
     # lets one through, held until this process ends.
     import fcntl
@@ -772,6 +963,10 @@ def daemon():
     log('ambilight: start, strip %s' % (a.conf['address'] or 'none'))
     try:
         a.run()
+    except Exception:
+        import traceback
+        log('ambilight: crashed: %s' % traceback.format_exc().strip().replace('\n', ' | '))
+        raise
     finally:
         power.close()
         try:

@@ -60,11 +60,12 @@ class Screen(unittest.TestCase):
         self.assertGreater(b, 150)
         self.assertLess(r, 60)
 
-    def test_a_strong_colour_wins_over_a_grey_background(self):
+    def test_a_strong_colour_tints_a_grey_background(self):
         def px(x, y):
             return (220, 20, 20) if 100 <= x < 160 and 40 <= y < 100 else (120, 120, 120)
         r, g, b = amb.screen_color(*amb.bmp_pixels(bmp(240, 136, px)))
-        self.assertGreater(r, g * 3)
+        self.assertGreater(r, g * 1.2)                    # red, but not pure red
+        self.assertGreater(g, 40)
 
     def test_a_grey_scene_gives_its_average_and_black_gives_off(self):
         grey = amb.screen_color(*amb.bmp_pixels(bmp(240, 136, lambda x, y: (150, 150, 140))))
@@ -77,18 +78,54 @@ class Screen(unittest.TestCase):
         r, g, b = amb.screen_color(*amb.bmp_pixels(bmp(240, 136, px)))
         self.assertLess(max(r, g, b), 40)
 
-    def test_boost_keeps_black_and_white(self):
+    def test_skin_on_a_beige_wall_is_a_soft_warm_light(self):
+        def px(x, y):
+            if 80 <= x < 160 and 20 <= y < 120:
+                return (225, 170, 140)                    # a light-skinned face
+            return (190, 180, 150) if y > 15 else (30, 30, 30)
+        r, g, b = amb.boost(amb.screen_color(*amb.bmp_pixels(bmp(240, 136, px))))
+        self.assertGreater(r, b * 2)                      # warm
+        self.assertGreater(g, r * 0.45)                   # orange, not red
+        self.assertGreater(b, 20)
+
+    def test_boost_keeps_a_pure_colour(self):
+        self.assertEqual([round(c) for c in amb.boost((255, 0, 0))], [255, 0, 0])
+
+    def test_a_warm_brown_scene_gives_a_visible_orange(self):
+        r, g, b = amb.boost((90, 62, 41))
+        self.assertGreater(r, 100)                        # not a dim grey
+        self.assertGreater(r, g * 1.6)
+        self.assertGreater(g, b * 1.6)
+
+    def test_an_orange_stays_orange_on_the_strip(self):
+        # 50 of 255 green on screen is little green light; on the strip it
+        # would turn the orange yellow.
+        r, g, b = amb.boost((255, 50, 0))
+        self.assertEqual(round(r), 255)
+        self.assertLess(g, 15)
+
+    def test_boost_keeps_black_and_warms_white(self):
         self.assertEqual(amb.boost((0, 0, 0)), (0.0, 0.0, 0.0))
-        self.assertEqual([round(c) for c in amb.boost((255, 255, 255))], [255, 255, 255])
+        # White corrected for the strip's cold LEDs.
+        self.assertEqual([round(c) for c in amb.boost((255, 255, 255))], [255, 217, 178])
 
     def test_smoother_follows_cuts_faster(self):
         s = amb.Smoother()
-        s.step((0, 0, 0))
-        small = s.step((40, 0, 0))[0]
+        s.step((0, 0, 0), 0.05)
+        small = s.step((40, 0, 0), 0.05)[0]
         s2 = amb.Smoother()
-        s2.step((0, 0, 0))
-        cut = s2.step((255, 0, 0))[0]
+        s2.step((0, 0, 0), 0.05)
+        cut = s2.step((255, 0, 0), 0.05)[0]
         self.assertLess(small / 40.0, cut / 255.0)
+
+    def test_the_fade_reaches_the_colour_in_small_steps(self):
+        s = amb.Smoother()
+        s.step((0, 0, 0), 0.05)
+        values = [s.step((0, 0, 200), 0.05)[2] for _ in range(40)]   # two seconds
+        steps = [b - a for a, b in zip([0] + values, values)]
+        self.assertGreater(values[-1], 190)
+        self.assertLess(max(steps), 40)                                # no jump
+        self.assertGreater(len([v for v in values if v < 150]), 4)
 
 
 class Conf(unittest.TestCase):
@@ -149,7 +186,7 @@ class Loop(unittest.TestCase):
         self.power = ['Active']
         self.now = [1000.0]
         self.a = amb.Ambilight(conf_source=lambda: amb.clean_conf(self.conf), power=lambda: self.power[0],
-                               clock=lambda: self.now[0])
+                               clock=lambda: self.now[0], grabber=amb.Grabber(threaded=False))
 
     def tearDown(self):
         amb.Strip, amb.capture, amb.reset_bluetooth, amb.stale_link, amb.PREVIEW, amb.RUN = self.saved
@@ -217,6 +254,70 @@ class Loop(unittest.TestCase):
         self.a.release()
         self.assertEqual(strip.colors()[-1], (10, 20, 30))
 
+    def test_between_captures_the_strip_keeps_fading(self):
+        frames = [amb.bmp_pixels(bmp(16, 8, lambda x, y: (0, 0, 0)))]
+
+        class Slow(object):
+            misses = 0
+
+            def latest(self):
+                return 1, frames[0]              # the same capture, asked many times
+        self.a.grabber = Slow()
+        self.a.step()
+        frames[0] = amb.bmp_pixels(bmp(16, 8, lambda x, y: (0, 0, 255)))
+        self.a.grabber.latest = lambda: (2, frames[0])
+        blues = []
+        for _ in range(30):
+            self.now[0] += amb.TICK
+            self.a.step()
+            blues.append(self.a.strip.colors()[-1][2])
+        self.assertGreater(len(set(blues)), 8)     # many small writes, not one jump
+        self.assertGreater(blues[-1], 200)
+
+    def test_a_hung_bluetooth_service_is_restarted(self):
+        tries = []
+
+        class Hung(FakeStrip):
+            def connect(self):
+                tries.append(1)
+                self.connected = len(tries) > 1
+                self.reason = '' if self.connected else 'Message status unknown.'
+                return self.connected
+        amb.Strip = Hung
+        self.a.step()
+        self.assertEqual(self.resets, [1])
+        self.assertEqual(self.a.mode, 'follow')
+
+    def test_a_hung_service_is_not_restarted_again_and_again(self):
+        calls = []
+        real_call, real_sleep = amb.subprocess.call, amb.time.sleep
+        amb.subprocess.call = lambda *a, **k: calls.append(a[0]) or 0
+        amb.time.sleep = lambda s: None
+        clock = [1000.0]
+        try:
+            amb._last_reset[0] = 0.0
+            self.assertTrue(self.saved[2](now=lambda: clock[0]))
+            clock[0] += 30
+            self.assertFalse(self.saved[2](now=lambda: clock[0]))
+            clock[0] += 120
+            self.assertTrue(self.saved[2](now=lambda: clock[0]))
+        finally:
+            amb.subprocess.call, amb.time.sleep = real_call, real_sleep
+            amb._last_reset[0] = 0.0
+        self.assertEqual(calls, [['/sbin/restart', 'webos-bluetooth-service']] * 2)
+
+    def test_a_missing_restart_command_does_not_kill_the_process(self):
+        def missing(*a, **k):
+            raise OSError(2, 'No such file or directory')
+        real_call = amb.subprocess.call
+        amb.subprocess.call = missing
+        try:
+            amb._last_reset[0] = 0.0
+            self.assertFalse(self.saved[2]())
+        finally:
+            amb.subprocess.call = real_call
+            amb._last_reset[0] = 0.0
+
     def test_a_stale_link_is_cleared_by_restarting_bluetooth(self):
         tries = []
 
@@ -231,6 +332,50 @@ class Loop(unittest.TestCase):
         self.assertEqual(self.resets, [1])
         self.assertEqual(self.a.mode, 'follow')
 
+
+
+class LunaPipeTest(unittest.TestCase):
+    """The long-lived Node client, with a stand-in for webOS's bus library."""
+
+    def setUp(self):
+        import shutil, tempfile
+        if not shutil.which('node'):
+            self.skipTest('no node')
+        self.dir = tempfile.mkdtemp()
+        self.saved = (amb.RUN, amb.PALMBUS)
+        amb.RUN = self.dir
+        fake = os.path.join(self.dir, 'palmbus.js')
+        with open(fake, 'w') as f:
+            f.write("exports.Handle = function () { this.call = function (uri, payload) {"
+                    " var l = {}; setTimeout(function () { l.response({payload: function () {"
+                    " return JSON.stringify({returnValue: true, uri: uri, echo: JSON.parse(payload)}); }}); }, 5);"
+                    " return {addListener: function (e, f) { l[e] = f; }, cancel: function () {}}; }; };")
+        amb.PALMBUS = [fake]
+
+    def tearDown(self):
+        amb.RUN, amb.PALMBUS = self.saved
+
+    def test_calls_share_one_process_and_get_their_own_reply(self):
+        pipe = amb.LunaPipe()
+        a = pipe.call('luna://x/a', {'n': 1}, 5)
+        first = pipe.p.pid
+        b = pipe.call('luna://x/b', {'n': 2}, 5)
+        self.assertEqual((a['uri'], a['echo']), ('luna://x/a', {'n': 1}))
+        self.assertEqual((b['uri'], b['echo']), ('luna://x/b', {'n': 2}))
+        self.assertEqual(pipe.p.pid, first)
+        pipe.p.kill()
+
+    def test_without_node_the_calls_fall_back_to_luna_send(self):
+        pipe = amb.LunaPipe()
+        real = amb.subprocess.Popen
+
+        def missing(*a, **k):
+            raise OSError(2, 'No such file or directory')
+        amb.subprocess.Popen = missing
+        try:
+            self.assertIsNone(pipe.call('luna://x/a', {}, 1))
+        finally:
+            amb.subprocess.Popen = real
 
 if __name__ == '__main__':
     unittest.main()

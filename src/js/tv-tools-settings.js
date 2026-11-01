@@ -406,9 +406,10 @@ export function mountTvToolsSettings(panel, api) {
       tried.textContent = 'Collegamento alla striscia…';
       try {
         await api.ledPreview(strip.value, rgb);
-        tried.textContent = follow.checked
+        tried.textContent = (follow.checked
           ? 'Colore inviato: resta per qualche secondo.'
-          : 'Colore inviato: resta acceso. Il Bluetooth della TV si riavvia per lasciare la striscia all’app del telefono.';
+          : 'Colore inviato: resta acceso. Il Bluetooth della TV si riavvia per lasciare la striscia all’app del telefono.') +
+          ' Prova non salva: premi Salva per tenere questa luce a TV spenta.';
       } catch (err) {
         tried.textContent = 'Non riuscito: ' + (err && err.message ? err.message : err);
       } finally {
