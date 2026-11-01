@@ -203,24 +203,25 @@ def screen_color(w, h, rows, step=STEP):
     return tuple(c * level for c in avg)
 
 
-# The strip's own white is cold: green and blue LEDs are far brighter than
-# the red ones, so (255, 255, 255) is a bluish white and a warm brown comes
-# out grey. Measured by eye on an ELK-BLEDOB: these bring it back to warm.
-WHITE_BALANCE = (1.0, 0.8, 0.6)
+# The strip's own white is cold: its green and blue LEDs outshine the red.
+WHITE_BALANCE = (1.0, 0.85, 0.7)
 
 
-def boost(rgb, saturation=1.25, gamma=0.8):
-    """From the screen to the LEDs. The hue a little stronger than on screen
-    (a strip next to a bright picture looks washed out), the brightness of
-    the scene lifted a little (a mid scene would light almost nothing), and
-    the strip's cold white corrected."""
+def boost(rgb, saturation=1.0, gamma=0.8, mix=2.0):
+    """From the screen to the LEDs. A screen value is not light: 50 out of
+    255 green is about 3% of the green light, but the strip turns 50 into
+    20% of its green, and an orange (255, 50, 0) shows as a pale yellow. So
+    the proportions between the channels go through a curve (mix), the
+    strip's cold white is corrected, and the brightness of the scene is
+    lifted a little (gamma) so that a mid scene still lights the room."""
     r, g, b = (max(0.0, min(255.0, float(c))) for c in rgb)
     mx = max(r, g, b)
     if mx <= 0:
         return (0.0, 0.0, 0.0)
     grey = (r + g + b) / 3.0
     col = [max(0.0, grey + (c - grey) * saturation) for c in (r, g, b)]
-    col = [c * w for c, w in zip(col, WHITE_BALANCE)]
+    top = max(col) or 1.0
+    col = [(c / top) ** mix * w for c, w in zip(col, WHITE_BALANCE)]
     scale = 255.0 * (mx / 255.0) ** gamma / (max(col) or 1)
     return tuple(min(255.0, c * scale) for c in col)
 

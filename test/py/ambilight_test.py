@@ -97,10 +97,17 @@ class Screen(unittest.TestCase):
         self.assertGreater(r, g * 1.6)
         self.assertGreater(g, b * 1.6)
 
+    def test_an_orange_stays_orange_on_the_strip(self):
+        # 50 of 255 green on screen is little green light; on the strip it
+        # would turn the orange yellow.
+        r, g, b = amb.boost((255, 50, 0))
+        self.assertEqual(round(r), 255)
+        self.assertLess(g, 15)
+
     def test_boost_keeps_black_and_warms_white(self):
         self.assertEqual(amb.boost((0, 0, 0)), (0.0, 0.0, 0.0))
         # White corrected for the strip's cold LEDs.
-        self.assertEqual([round(c) for c in amb.boost((255, 255, 255))], [255, 204, 153])
+        self.assertEqual([round(c) for c in amb.boost((255, 255, 255))], [255, 217, 178])
 
     def test_smoother_follows_cuts_faster(self):
         s = amb.Smoother()
