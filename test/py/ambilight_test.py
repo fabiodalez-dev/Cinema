@@ -84,19 +84,23 @@ class Screen(unittest.TestCase):
                 return (225, 170, 140)                    # a light-skinned face
             return (190, 180, 150) if y > 15 else (30, 30, 30)
         r, g, b = amb.boost(amb.screen_color(*amb.bmp_pixels(bmp(240, 136, px))))
-        self.assertGreater(r, b)                          # warm
-        self.assertGreater(g, r * 0.6)                    # not red
-        self.assertGreater(b, r * 0.4)
+        self.assertGreater(r, b * 2)                      # warm
+        self.assertGreater(g, r * 0.45)                   # orange, not red
+        self.assertGreater(b, 20)
 
-    def test_boost_softens_a_pure_colour_and_keeps_its_hue(self):
-        r, g, b = amb.boost((255, 0, 0))
-        self.assertEqual(round(r), 255)
-        self.assertGreater(g, 10)
-        self.assertAlmostEqual(g, b)
+    def test_boost_keeps_a_pure_colour(self):
+        self.assertEqual([round(c) for c in amb.boost((255, 0, 0))], [255, 0, 0])
 
-    def test_boost_keeps_black_and_white(self):
+    def test_a_warm_brown_scene_gives_a_visible_orange(self):
+        r, g, b = amb.boost((90, 62, 41))
+        self.assertGreater(r, 100)                        # not a dim grey
+        self.assertGreater(r, g * 1.6)
+        self.assertGreater(g, b * 1.6)
+
+    def test_boost_keeps_black_and_warms_white(self):
         self.assertEqual(amb.boost((0, 0, 0)), (0.0, 0.0, 0.0))
-        self.assertEqual([round(c) for c in amb.boost((255, 255, 255))], [255, 255, 255])
+        # White corrected for the strip's cold LEDs.
+        self.assertEqual([round(c) for c in amb.boost((255, 255, 255))], [255, 204, 153])
 
     def test_smoother_follows_cuts_faster(self):
         s = amb.Smoother()

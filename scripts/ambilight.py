@@ -203,18 +203,25 @@ def screen_color(w, h, rows, step=STEP):
     return tuple(c * level for c in avg)
 
 
-def boost(rgb, saturation=0.8, gamma=1.6):
-    """From the screen to the LEDs. A strip shows pure, saturated light, so
-    the colour is moved a little towards white; and LEDs are brightest at
-    the bottom of their range, so a gamma curve on the brightness alone (the
-    proportions stay) gives a dim light for a dim scene."""
+# The strip's own white is cold: green and blue LEDs are far brighter than
+# the red ones, so (255, 255, 255) is a bluish white and a warm brown comes
+# out grey. Measured by eye on an ELK-BLEDOB: these bring it back to warm.
+WHITE_BALANCE = (1.0, 0.8, 0.6)
+
+
+def boost(rgb, saturation=1.25, gamma=0.8):
+    """From the screen to the LEDs. The hue a little stronger than on screen
+    (a strip next to a bright picture looks washed out), the brightness of
+    the scene lifted a little (a mid scene would light almost nothing), and
+    the strip's cold white corrected."""
     r, g, b = (max(0.0, min(255.0, float(c))) for c in rgb)
     mx = max(r, g, b)
     if mx <= 0:
         return (0.0, 0.0, 0.0)
     grey = (r + g + b) / 3.0
     col = [max(0.0, grey + (c - grey) * saturation) for c in (r, g, b)]
-    scale = mx * (mx / 255.0) ** (gamma - 1) / (max(col) or 1)
+    col = [c * w for c, w in zip(col, WHITE_BALANCE)]
+    scale = 255.0 * (mx / 255.0) ** gamma / (max(col) or 1)
     return tuple(min(255.0, c * scale) for c in col)
 
 
